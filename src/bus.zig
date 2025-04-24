@@ -17,6 +17,7 @@ const Urgency = enum {
 const BusError =
     std.mem.Allocator.Error ||
     error{NoSpaceLeft} ||
+    error{PropertyUpdateError} ||
     error{SystemBusInitError} ||
     error{UserBusInitError} ||
     error{MessageReadError} ||
@@ -218,7 +219,7 @@ pub const Bus = struct {
                 // if (ret < 0) {
                 //     goto error;
                 // }
-
+                try self.updateDeviceState(&device);
             } else {
                 std.debug.print("path empty\n", .{});
             }
@@ -269,10 +270,9 @@ pub const Bus = struct {
             _ = sd_bus.sd_bus_error_free(&err);
         }
 
-        var ret = 0;
-        var tmp: [:0]const u8 = undefined;
+        var tmp: [*c]u8 = null;
 
-        ret = sd_bus.sd_bus_get_property_string(
+        if (sd_bus.sd_bus_get_property_string(
             self.system_bus,
             "org.freedesktop.UPower",
             device.path,
@@ -280,15 +280,129 @@ pub const Bus = struct {
             "NativePath",
             &err,
             &tmp,
-        );
-        if (ret < 0) {
+        ) < 0) {
             std.debug.print("Failed to update property\n", .{});
             return error.PropertyUpdateError;
         }
-        if (device.native_path) |_| {
-            device.allocator.free(device.native_path);
+        if (device.native_path) |prop| {
+            std.c.free(@constCast(prop));
         }
         device.native_path = try std.fmt.allocPrintZ(device.allocator, "{s}", .{tmp});
+
+        if (sd_bus.sd_bus_get_property_string(
+            self.system_bus,
+            "org.freedesktop.UPower",
+            device.path,
+            "org.freedesktop.UPower.Device",
+            "Model",
+            &err,
+            &tmp,
+        ) < 0) {
+            std.debug.print("Failed to update property\n", .{});
+            return error.PropertyUpdateError;
+        }
+        if (device.model) |prop| {
+            std.c.free(@constCast(prop));
+        }
+        device.model = try std.fmt.allocPrintZ(device.allocator, "{s}", .{tmp});
+
+        if (sd_bus.sd_bus_get_property_trivial(
+            self.system_bus,
+            "org.freedesktop.UPower",
+            device.path,
+            "org.freedesktop.UPower.Device",
+            "PowerSupply",
+            &err,
+            'b',
+            &device.power_supply,
+        ) < 0) {
+            std.debug.print("Failed to update property\n", .{});
+            return error.PropertyUpdateError;
+        }
+
+        if (sd_bus.sd_bus_get_property_trivial(
+            self.system_bus,
+            "org.freedesktop.UPower",
+            device.path,
+            "org.freedesktop.UPower.Device",
+            "Type",
+            &err,
+            'u',
+            &device.type,
+        ) < 0) {
+            std.debug.print("Failed to update property\n", .{});
+            return error.PropertyUpdateError;
+        }
+
+        if (sd_bus.sd_bus_get_property_trivial(
+            self.system_bus,
+            "org.freedesktop.UPower",
+            device.path,
+            "org.freedesktop.UPower.Device",
+            "Online",
+            &err,
+            'b',
+            &device.current.online,
+        ) < 0) {
+            std.debug.print("Failed to update property\n", .{});
+            return error.PropertyUpdateError;
+        }
+
+        if (sd_bus.sd_bus_get_property_trivial(
+            self.system_bus,
+            "org.freedesktop.UPower",
+            device.path,
+            "org.freedesktop.UPower.Device",
+            "State",
+            &err,
+            'u',
+            &device.current.state,
+        ) < 0) {
+            std.debug.print("Failed to update property\n", .{});
+            return error.PropertyUpdateError;
+        }
+
+        if (sd_bus.sd_bus_get_property_trivial(
+            self.system_bus,
+            "org.freedesktop.UPower",
+            device.path,
+            "org.freedesktop.UPower.Device",
+            "WarningLevel",
+            &err,
+            'u',
+            &device.current.warning_level,
+        ) < 0) {
+            std.debug.print("Failed to update property\n", .{});
+            return error.PropertyUpdateError;
+        }
+
+        if (sd_bus.sd_bus_get_property_trivial(
+            self.system_bus,
+            "org.freedesktop.UPower",
+            device.path,
+            "org.freedesktop.UPower.Device",
+            "BatteryLevel",
+            &err,
+            'u',
+            &device.current.battery_level,
+        ) < 0) {
+            std.debug.print("Failed to update property\n", .{});
+            return error.PropertyUpdateError;
+        }
+
+        if (sd_bus.sd_bus_get_property_trivial(
+            self.system_bus,
+            "org.freedesktop.UPower",
+            device.path,
+            "org.freedesktop.UPower.Device",
+            "Percentage",
+            &err,
+            'd',
+            &device.current.percentage,
+        ) < 0) {
+            std.debug.print("Failed to update property\n", .{});
+            return error.PropertyUpdateError;
+        }
     }
 
     pub fn sendNotification(self: *const Bus, summary: [:0]const u8, body: [:0]const u8, category: [:0]const u8, id: ?u32, urgency: Urgency) !void {
