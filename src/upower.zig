@@ -152,6 +152,51 @@ pub const UPowerDevice = struct {
         return @intFromEnum(self.type) != @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_LINE_POWER) and
             @intFromEnum(self.type) != @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_UNKNOWN);
     }
+
+    pub fn state_string(self: *const UPowerDevice) [:0]const u8 {
+        if (@intFromEnum(self.current.state) >= @intFromEnum(UPowerDeviceState.UPOWER_DEVICE_STATE_UNKNOWN) and
+            @intFromEnum(self.current.state) < @intFromEnum(UPowerDeviceState.UPOWER_DEVICE_STATE_LAST))
+        {
+            return @tagName(self.current.state);
+        }
+        return "unknown";
+    }
+
+    pub fn warning_level_string(self: *const UPowerDevice) [:0]const u8 {
+        if (@intFromEnum(self.current.warning_level) >= @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_UNKNOWN) and
+            @intFromEnum(self.current.warning_level) < @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_LAST))
+        {
+            return @tagName(self.current.warning_level);
+        }
+        return "unknown";
+    }
+
+    pub fn battery_level_string(self: *const UPowerDevice) [:0]const u8 {
+        if (@intFromEnum(self.current.battery_level) >= @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_UNKNOWN) and
+            @intFromEnum(self.current.battery_level) < @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_LAST))
+        {
+            return @tagName(self.current.battery_level);
+        }
+        return "unknown";
+    }
+
+    pub fn type_string(self: *const UPowerDevice) [:0]const u8 {
+        if (@intFromEnum(self.type) >= @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_UNKNOWN) and
+            @intFromEnum(self.type) < @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_LAST))
+        {
+            return @tagName(self.type);
+        }
+        return "unknown";
+    }
+
+    pub fn type_int(_: *const UPowerDevice, device: *[]u8) i64 {
+        for (UPowerDeviceType, 0..) |dtype, idx| {
+            if (std.mem.eql(@tagName(dtype), device)) {
+                return idx;
+            }
+        }
+        return -1;
+    }
 };
 
 pub fn print_device(dev: *const UPowerDevice) void {
@@ -287,7 +332,7 @@ pub const State = struct {
                         .percentage = 100.0,
                         .state = .UPOWER_DEVICE_STATE_FULLY_CHARGED,
                         .warning_level = .UPOWER_DEVICE_LEVEL_NONE,
-                        .battery_level = .UPOWER_DEVICE_LEVEL_FULL,
+                        .battery_level = .UPOWER_DEVICE_LEVEL_NONE,
                     };
 
                     break :blk UPowerDevice{
