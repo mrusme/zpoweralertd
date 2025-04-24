@@ -95,14 +95,14 @@ pub const Bus = struct {
             _ = sd_bus.sd_bus_error_free(&err);
         }
 
-        const condition = try state.init(self.allocator);
+        const the_state = try state.init(self.allocator);
 
         if (sd_bus.sd_bus_add_match(
             self.system_bus,
             null,
             "type='signal',path='/org/freedesktop/UPower',interface='org.freedesktop.UPower',member='DeviceAdded'",
             handle_upower_device_added,
-            condition,
+            the_state,
         ) < 0) {
             std.debug.print("Failed to add match\n", .{});
             return error.MatchAddError;
@@ -113,7 +113,7 @@ pub const Bus = struct {
             null,
             "type='signal',path='/org/freedesktop/UPower',interface='org.freedesktop.UPower',member='DeviceRemoved'",
             handle_upower_device_removed,
-            condition,
+            the_state,
         ) < 0) {
             std.debug.print("Failed to add match\n", .{});
             return error.MatchAddError;
@@ -179,7 +179,7 @@ pub const Bus = struct {
 
                     break :blk upower.UPowerDevice{
                         // TODO: free
-                        .path = try std.fmt.allocPrintZ(condition.*.allocator, "#{s}", .{p}),
+                        .path = try std.fmt.allocPrintZ(the_state.*.allocator, "#{s}", .{p}),
                         .native_path = null,
                         .model = null,
                         .power_supply = 1,
@@ -193,7 +193,7 @@ pub const Bus = struct {
                     };
                 };
 
-                try condition.*.devices.append(condition.*.allocator, device);
+                try the_state.*.devices.append(the_state.*.allocator, device);
 
                 // C:
                 // ret = upower_device_register_notification(bus, device);
@@ -212,7 +212,7 @@ pub const Bus = struct {
 
         _ = sd_bus.sd_bus_message_exit_container(msg);
 
-        return condition;
+        return the_state;
     }
 
     pub fn process(self: *const Bus) i32 {

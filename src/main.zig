@@ -18,16 +18,16 @@ pub fn main() !void {
         return error.ClockError;
     }
 
-    const coach = try bus.init(gpa);
-    defer coach.deinit();
+    const the_bus = try bus.init(gpa);
+    defer the_bus.deinit();
 
-    const condition = try coach.start();
-    defer condition.deinit();
+    const the_state = try the_bus.start();
+    defer the_state.deinit();
 
     std.debug.print("entering main loop\n", .{});
     while (true) {
         std.debug.print("entering for devices\n", .{});
-        for (condition.devices.items) |*device| {
+        for (the_state.devices.items) |*device| {
             defer {
                 device.last = device.current;
             }
@@ -47,18 +47,18 @@ pub fn main() !void {
             }
 
             if (device.has_battery()) {
-                coach.send_state_update(device) catch |err| {
+                the_bus.send_state_update(device) catch |err| {
                     std.debug.print("could not send state update notification {any}\n", .{err});
                     //     fprintf(stderr, "could not send state update notification: #{s}\n", strerror(-ret));
                     //     // goto finish;
                 };
-                coach.send_warning_update(device) catch |err| {
+                the_bus.send_warning_update(device) catch |err| {
                     std.debug.print("could not send state warning update notification {any}\n", .{err});
                     //     fprintf(stderr, "could not send warning update notification: #{s}\n", strerror(-ret));
                     //     // goto finish;
                 };
             } else {
-                coach.send_online_update(device) catch |err| {
+                the_bus.send_online_update(device) catch |err| {
                     std.debug.print("could not send state online update notification {any}\n", .{err});
                     //     fprintf(stderr, "could not send online update notification: #{s}\n", strerror(-ret));
                     //     // goto finish;
@@ -68,7 +68,7 @@ pub fn main() !void {
         }
 
         std.debug.print("entering for removed_devices\n", .{});
-        for (condition.removed_devices.items) |*device| {
+        for (the_state.removed_devices.items) |*device| {
 
             // if ((ignore_types_mask & (@as(c_uint, 1) << device.type))) {
             //     continue;
@@ -78,7 +78,7 @@ pub fn main() !void {
                 continue;
             }
 
-            coach.send_remove(device) catch |err| {
+            the_bus.send_remove(device) catch |err| {
                 std.debug.print("could not send device removal notification {any}\n", .{err});
                 //     fprintf(stderr, "could not send device removal notification: #{s}\n", strerror(-ret));
                 //     // goto finish;
@@ -88,7 +88,7 @@ pub fn main() !void {
         }
 
         std.debug.print("sd_bus_process\n", .{});
-        var ret = coach.process();
+        var ret = the_bus.process();
         if (ret < 0) {
             std.debug.print("could not process system bus messages: #{d}\n", .{ret});
             // goto finish;
@@ -97,7 +97,7 @@ pub fn main() !void {
         }
 
         std.debug.print("sd_bus_wait\n", .{});
-        ret = coach.wait();
+        ret = the_bus.wait();
         if (ret < 0) {
             std.debug.print("could not wait for system bus messages: #{d}\n", .{ret});
             // goto finish;
