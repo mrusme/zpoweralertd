@@ -16,6 +16,7 @@ const Urgency = enum {
 
 const BusError =
     std.mem.Allocator.Error ||
+    error{NoSpaceLeft} ||
     error{SystemBusInitError} ||
     error{UserBusInitError} ||
     error{MessageReadError} ||
@@ -60,7 +61,7 @@ fn handleDeviceAdded(
     userdata: ?*anyopaque,
     ret_error: [*c]sd_bus.sd_bus_error,
 ) callconv(.C) c_int {
-    std.debug.print("Received signal #{any} #{any} #{any}\n", .{ m, userdata, ret_error });
+    std.debug.print("Received signal {any} {any} {any}\n", .{ m, userdata, ret_error });
     return 0;
 }
 
@@ -69,7 +70,16 @@ fn handleDeviceRemoved(
     userdata: ?*anyopaque,
     ret_error: [*c]sd_bus.sd_bus_error,
 ) callconv(.C) c_int {
-    std.debug.print("Received signal #{any} #{any} #{any}\n", .{ m, userdata, ret_error });
+    std.debug.print("Received signal {any} {any} {any}\n", .{ m, userdata, ret_error });
+    return 0;
+}
+
+fn handleDevicePropertiesChanged(
+    m: ?*sd_bus.sd_bus_message,
+    userdata: ?*anyopaque,
+    ret_error: [*c]sd_bus.sd_bus_error,
+) callconv(.C) c_int {
+    std.debug.print("Received signal {any} {any} {any}\n", .{ m, userdata, ret_error });
     return 0;
 }
 
@@ -167,7 +177,7 @@ pub const Bus = struct {
             if (path) |p| {
                 std.debug.print("Path: {s}\n", .{p});
 
-                const device = blk: {
+                var device = blk: {
                     const props = upower.UPowerDeviceProps{
                         .generation = 1,
                         .online = 1,
@@ -178,8 +188,9 @@ pub const Bus = struct {
                     };
 
                     break :blk upower.UPowerDevice{
+                        .allocator = the_state.*.allocator,
                         // TODO: free
-                        .path = try std.fmt.allocPrintZ(the_state.*.allocator, "#{s}", .{p}),
+                        .path = try std.fmt.allocPrintZ(the_state.*.allocator, "{s}", .{p}),
                         .native_path = null,
                         .model = null,
                         .power_supply = 1,
@@ -200,6 +211,9 @@ pub const Bus = struct {
                 // if (ret < 0) {
                 //     goto error;
                 // }
+                try self.registerDevicePropertiesChanged(&device);
+
+                // C:
                 // ret = upower_device_update_state(bus, device);
                 // if (ret < 0) {
                 //     goto error;
@@ -221,6 +235,60 @@ pub const Bus = struct {
 
     pub fn wait(self: *const Bus) i32 {
         return sd_bus.sd_bus_wait(self.system_bus, std.math.maxInt(u64));
+    }
+
+    pub fn registerDevicePropertiesChanged(self: *const Bus, device: *upower.UPowerDevice) !void {
+        var match: [:0]u8 = undefined;
+        var match_buf: [512:0]u8 = undefined;
+
+        if (device.path) |p| {
+            match = try std.fmt.bufPrintZ(&match_buf, "type='signal',path='{s}',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'", .{p});
+        } else {
+            std.debug.print("Failed to add match (path empty)\n", .{});
+            return error.MatchAddError;
+        }
+
+        std.debug.print("Adding match for {s}\n", .{match});
+
+        const ret = sd_bus.sd_bus_add_match(
+            self.system_bus,
+            &device.slot,
+            match,
+            handleDevicePropertiesChanged,
+            device,
+        );
+        if (ret < 0) {
+            std.debug.print("Failed to add match {d}\n", .{ret});
+            return error.MatchAddError;
+        }
+    }
+
+    pub fn updateDeviceState(self: *const Bus, device: *upower.UPowerDevice) !void {
+        var err: sd_bus.sd_bus_error = std.mem.zeroInit(sd_bus.sd_bus_error, .{});
+        defer {
+            _ = sd_bus.sd_bus_error_free(&err);
+        }
+
+        var ret = 0;
+        var tmp: [:0]const u8 = undefined;
+
+        ret = sd_bus.sd_bus_get_property_string(
+            self.system_bus,
+            "org.freedesktop.UPower",
+            device.path,
+            "org.freedesktop.UPower.Device",
+            "NativePath",
+            &err,
+            &tmp,
+        );
+        if (ret < 0) {
+            std.debug.print("Failed to update property\n", .{});
+            return error.PropertyUpdateError;
+        }
+        if (device.native_path) |_| {
+            device.allocator.free(device.native_path);
+        }
+        device.native_path = try std.fmt.allocPrintZ(device.allocator, "{s}", .{tmp});
     }
 
     pub fn sendNotification(self: *const Bus, summary: [:0]const u8, body: [:0]const u8, category: [:0]const u8, id: ?u32, urgency: Urgency) !void {
@@ -284,10 +352,10 @@ pub const Bus = struct {
 
         if (device.model) |model| {
             if (std.mem.len(model) > 0) {
-                cstr = try std.fmt.bufPrintZ(&title, "Power status: #{s}", .{model});
+                cstr = try std.fmt.bufPrintZ(&title, "Power status: {s}", .{model});
             }
         } else {
-            cstr = try std.fmt.bufPrintZ(&title, "Power status: #{?s} (#{s})", .{ device.native_path, @tagName(device.type) });
+            cstr = try std.fmt.bufPrintZ(&title, "Power status: {?s} ({s})", .{ device.native_path, @tagName(device.type) });
         }
 
         return self.sendNotification(cstr, msg, category, 0, urgency);
@@ -306,9 +374,9 @@ pub const Bus = struct {
         var category_buf: [64:0]u8 = undefined;
 
         if (std.mem.len(device.model.?) > 0) {
-            cstr = try std.fmt.bufPrintZ(&title, "Power status: #{s}", .{device.model.?});
+            cstr = try std.fmt.bufPrintZ(&title, "Power status: {s}", .{device.model.?});
         } else {
-            cstr = try std.fmt.bufPrintZ(&title, "Power status: #{s} (#{s})", .{ device.native_path.?, @tagName(device.type) });
+            cstr = try std.fmt.bufPrintZ(&title, "Power status: {s} ({s})", .{ device.native_path.?, @tagName(device.type) });
         }
 
         if (device.current.online == 0) {
@@ -351,16 +419,16 @@ pub const Bus = struct {
 
         if (device.model) |model| {
             if (std.mem.len(model) > 0) {
-                cstr = try std.fmt.bufPrintZ(&title, "Power status: #{s}", .{model});
+                cstr = try std.fmt.bufPrintZ(&title, "Power status: {s}", .{model});
             }
         } else {
-            cstr = try std.fmt.bufPrintZ(&title, "Power status: #{?s} (#{s})", .{ device.native_path, @tagName(device.type) });
+            cstr = try std.fmt.bufPrintZ(&title, "Power status: {?s} ({s})", .{ device.native_path, @tagName(device.type) });
         }
 
         if (device.current.battery_level != .UPOWER_DEVICE_LEVEL_NONE) {
-            msg = try std.fmt.bufPrintZ(&msg_buf, "Battery #{s}\nCurrent level: #{d}%\n", .{ device.stateStr(), device.batteryLevelStr() });
+            msg = try std.fmt.bufPrintZ(&msg_buf, "Battery {s}\nCurrent level: {d}%\n", .{ device.stateStr(), device.batteryLevelStr() });
         } else {
-            msg = try std.fmt.bufPrintZ(&msg_buf, "Battery #{s}\nCurrent level: #{d}%\n", .{ device.stateStr(), device.current.percentage });
+            msg = try std.fmt.bufPrintZ(&msg_buf, "Battery {s}\nCurrent level: {d}%\n", .{ device.stateStr(), device.current.percentage });
         }
 
         return self.sendNotification(cstr, msg, "power.update", device.notifications[@intFromEnum(upower.ChangeSlot.SLOT_STATE)], urgency);
@@ -414,10 +482,10 @@ pub const Bus = struct {
 
         if (device.model) |model| {
             if (std.mem.len(model) > 0) {
-                cstr = try std.fmt.bufPrintZ(&title, "Power warning: #{s}", .{model});
+                cstr = try std.fmt.bufPrintZ(&title, "Power warning: {s}", .{model});
             }
         } else {
-            cstr = try std.fmt.bufPrintZ(&title, "Power warning: #{?s} (#{s})", .{ device.native_path, @tagName(device.type) });
+            cstr = try std.fmt.bufPrintZ(&title, "Power warning: {?s} ({s})", .{ device.native_path, @tagName(device.type) });
         }
 
         return self.sendNotification(cstr, msg, category, device.notifications[@intFromEnum(upower.ChangeSlot.SLOT_WARNING)], urgency);

@@ -136,6 +136,7 @@ pub const UPowerDeviceProps = struct {
 };
 
 pub const UPowerDevice = struct {
+    allocator: std.mem.Allocator,
     path: ?[*:0]const u8,
     native_path: ?[*:0]const u8,
     model: ?[*:0]const u8,
@@ -146,7 +147,7 @@ pub const UPowerDevice = struct {
     last: UPowerDeviceProps,
 
     notifications: [3]u32,
-    slot: *sd_bus.sd_bus_slot,
+    slot: ?*sd_bus.sd_bus_slot,
 
     pub fn hasBattery(self: *const UPowerDevice) bool {
         return @intFromEnum(self.type) != @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_LINE_POWER) and

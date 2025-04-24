@@ -90,7 +90,7 @@ pub fn main() !void {
         std.debug.print("sd_bus_process\n", .{});
         var ret = the_bus.process();
         if (ret < 0) {
-            std.debug.print("could not process system bus messages: #{d}\n", .{ret});
+            std.debug.print("could not process system bus messages: {d}\n", .{ret});
             // goto finish;
         } else if (ret > 0) {
             continue;
@@ -99,7 +99,7 @@ pub fn main() !void {
         std.debug.print("sd_bus_wait\n", .{});
         ret = the_bus.wait();
         if (ret < 0) {
-            std.debug.print("could not wait for system bus messages: #{d}\n", .{ret});
+            std.debug.print("could not wait for system bus messages: {d}\n", .{ret});
             // goto finish;
         }
 
