@@ -55,7 +55,7 @@ pub fn init(allocator: std.mem.Allocator) BusError!Bus {
     return bus;
 }
 
-fn handle_upower_device_added(
+fn handleDeviceAdded(
     m: ?*sd_bus.sd_bus_message,
     userdata: ?*anyopaque,
     ret_error: [*c]sd_bus.sd_bus_error,
@@ -64,7 +64,7 @@ fn handle_upower_device_added(
     return 0;
 }
 
-fn handle_upower_device_removed(
+fn handleDeviceRemoved(
     m: ?*sd_bus.sd_bus_message,
     userdata: ?*anyopaque,
     ret_error: [*c]sd_bus.sd_bus_error,
@@ -101,7 +101,7 @@ pub const Bus = struct {
             self.system_bus,
             null,
             "type='signal',path='/org/freedesktop/UPower',interface='org.freedesktop.UPower',member='DeviceAdded'",
-            handle_upower_device_added,
+            handleDeviceAdded,
             the_state,
         ) < 0) {
             std.debug.print("Failed to add match\n", .{});
@@ -112,7 +112,7 @@ pub const Bus = struct {
             self.system_bus,
             null,
             "type='signal',path='/org/freedesktop/UPower',interface='org.freedesktop.UPower',member='DeviceRemoved'",
-            handle_upower_device_removed,
+            handleDeviceRemoved,
             the_state,
         ) < 0) {
             std.debug.print("Failed to add match\n", .{});
@@ -223,7 +223,7 @@ pub const Bus = struct {
         return sd_bus.sd_bus_wait(self.system_bus, std.math.maxInt(u64));
     }
 
-    pub fn notify(self: *const Bus, summary: [:0]const u8, body: [:0]const u8, category: [:0]const u8, id: ?u32, urgency: Urgency) !void {
+    pub fn sendNotification(self: *const Bus, summary: [:0]const u8, body: [:0]const u8, category: [:0]const u8, id: ?u32, urgency: Urgency) !void {
         var msg: ?*sd_bus.sd_bus_message = null;
         var err: sd_bus.sd_bus_error = std.mem.zeroInit(sd_bus.sd_bus_error, .{});
         defer {
@@ -270,7 +270,7 @@ pub const Bus = struct {
         return;
     }
 
-    pub fn send_remove(self: *const Bus, device: *upower.UPowerDevice) !void {
+    pub fn sendRemoveNotification(self: *const Bus, device: *upower.UPowerDevice) !void {
         const urgency: Urgency = .URGENCY_NORMAL;
         var title: [NOTIFICATION_MAX_LEN]u8 = undefined;
         var cstr: [:0]u8 = undefined;
@@ -290,10 +290,10 @@ pub const Bus = struct {
             cstr = try std.fmt.bufPrintZ(&title, "Power status: #{?s} (#{s})", .{ device.native_path, @tagName(device.type) });
         }
 
-        return self.notify(cstr, msg, category, 0, urgency);
+        return self.sendNotification(cstr, msg, category, 0, urgency);
     }
 
-    pub fn send_online_update(self: *const Bus, device: *upower.UPowerDevice) !void {
+    pub fn sendOnlineUpdateNotification(self: *const Bus, device: *upower.UPowerDevice) !void {
         // if (device.current.online == device.last.online) {
         //   return 0;
         // }
@@ -319,10 +319,10 @@ pub const Bus = struct {
             category = try std.fmt.bufPrintZ(&category_buf, "power.offline", .{});
         }
 
-        return self.notify(cstr, msg, category, device.notifications[@intFromEnum(upower.ChangeSlot.SLOT_ONLINE)], .URGENCY_NORMAL);
+        return self.sendNotification(cstr, msg, category, device.notifications[@intFromEnum(upower.ChangeSlot.SLOT_ONLINE)], .URGENCY_NORMAL);
     }
 
-    pub fn send_state_update(self: *const Bus, device: *upower.UPowerDevice) !void {
+    pub fn sendStateUpdateNotification(self: *const Bus, device: *upower.UPowerDevice) !void {
         // if (device.current.state == device.last.state) {
         //   return 0;
         // }
@@ -358,15 +358,15 @@ pub const Bus = struct {
         }
 
         if (device.current.battery_level != .UPOWER_DEVICE_LEVEL_NONE) {
-            msg = try std.fmt.bufPrintZ(&msg_buf, "Battery #{s}\nCurrent level: #{d}%\n", .{ device.state_string(), device.battery_level_string() });
+            msg = try std.fmt.bufPrintZ(&msg_buf, "Battery #{s}\nCurrent level: #{d}%\n", .{ device.stateStr(), device.batteryLevelStr() });
         } else {
-            msg = try std.fmt.bufPrintZ(&msg_buf, "Battery #{s}\nCurrent level: #{d}%\n", .{ device.state_string(), device.current.percentage });
+            msg = try std.fmt.bufPrintZ(&msg_buf, "Battery #{s}\nCurrent level: #{d}%\n", .{ device.stateStr(), device.current.percentage });
         }
 
-        return self.notify(cstr, msg, "power.update", device.notifications[@intFromEnum(upower.ChangeSlot.SLOT_STATE)], urgency);
+        return self.sendNotification(cstr, msg, "power.update", device.notifications[@intFromEnum(upower.ChangeSlot.SLOT_STATE)], urgency);
     }
 
-    pub fn send_warning_update(self: *const Bus, device: *upower.UPowerDevice) !void {
+    pub fn sendWarningUpdateNotification(self: *const Bus, device: *upower.UPowerDevice) !void {
         // if (device.current.warning_level == device.last.warning_level) {
         //   return 0;
         // }
@@ -420,6 +420,6 @@ pub const Bus = struct {
             cstr = try std.fmt.bufPrintZ(&title, "Power warning: #{?s} (#{s})", .{ device.native_path, @tagName(device.type) });
         }
 
-        return self.notify(cstr, msg, category, device.notifications[@intFromEnum(upower.ChangeSlot.SLOT_WARNING)], urgency);
+        return self.sendNotification(cstr, msg, category, device.notifications[@intFromEnum(upower.ChangeSlot.SLOT_WARNING)], urgency);
     }
 };

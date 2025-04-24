@@ -46,19 +46,19 @@ pub fn main() !void {
                 continue;
             }
 
-            if (device.has_battery()) {
-                the_bus.send_state_update(device) catch |err| {
+            if (device.hasBattery()) {
+                the_bus.sendStateUpdateNotification(device) catch |err| {
                     std.debug.print("could not send state update notification {any}\n", .{err});
                     //     fprintf(stderr, "could not send state update notification: #{s}\n", strerror(-ret));
                     //     // goto finish;
                 };
-                the_bus.send_warning_update(device) catch |err| {
+                the_bus.sendWarningUpdateNotification(device) catch |err| {
                     std.debug.print("could not send state warning update notification {any}\n", .{err});
                     //     fprintf(stderr, "could not send warning update notification: #{s}\n", strerror(-ret));
                     //     // goto finish;
                 };
             } else {
-                the_bus.send_online_update(device) catch |err| {
+                the_bus.sendOnlineUpdateNotification(device) catch |err| {
                     std.debug.print("could not send state online update notification {any}\n", .{err});
                     //     fprintf(stderr, "could not send online update notification: #{s}\n", strerror(-ret));
                     //     // goto finish;
@@ -78,7 +78,7 @@ pub fn main() !void {
                 continue;
             }
 
-            the_bus.send_remove(device) catch |err| {
+            the_bus.sendRemoveNotification(device) catch |err| {
                 std.debug.print("could not send device removal notification {any}\n", .{err});
                 //     fprintf(stderr, "could not send device removal notification: #{s}\n", strerror(-ret));
                 //     // goto finish;

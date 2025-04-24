@@ -148,12 +148,12 @@ pub const UPowerDevice = struct {
     notifications: [3]u32,
     slot: *sd_bus.sd_bus_slot,
 
-    pub fn has_battery(self: *const UPowerDevice) bool {
+    pub fn hasBattery(self: *const UPowerDevice) bool {
         return @intFromEnum(self.type) != @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_LINE_POWER) and
             @intFromEnum(self.type) != @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_UNKNOWN);
     }
 
-    pub fn state_string(self: *const UPowerDevice) [:0]const u8 {
+    pub fn stateStr(self: *const UPowerDevice) [:0]const u8 {
         if (@intFromEnum(self.current.state) >= @intFromEnum(UPowerDeviceState.UPOWER_DEVICE_STATE_UNKNOWN) and
             @intFromEnum(self.current.state) < @intFromEnum(UPowerDeviceState.UPOWER_DEVICE_STATE_LAST))
         {
@@ -162,7 +162,7 @@ pub const UPowerDevice = struct {
         return "unknown";
     }
 
-    pub fn warning_level_string(self: *const UPowerDevice) [:0]const u8 {
+    pub fn warningLevelStr(self: *const UPowerDevice) [:0]const u8 {
         if (@intFromEnum(self.current.warning_level) >= @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_UNKNOWN) and
             @intFromEnum(self.current.warning_level) < @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_LAST))
         {
@@ -171,7 +171,7 @@ pub const UPowerDevice = struct {
         return "unknown";
     }
 
-    pub fn battery_level_string(self: *const UPowerDevice) [:0]const u8 {
+    pub fn batteryLevelStr(self: *const UPowerDevice) [:0]const u8 {
         if (@intFromEnum(self.current.battery_level) >= @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_UNKNOWN) and
             @intFromEnum(self.current.battery_level) < @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_LAST))
         {
@@ -180,7 +180,7 @@ pub const UPowerDevice = struct {
         return "unknown";
     }
 
-    pub fn type_string(self: *const UPowerDevice) [:0]const u8 {
+    pub fn typeStr(self: *const UPowerDevice) [:0]const u8 {
         if (@intFromEnum(self.type) >= @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_UNKNOWN) and
             @intFromEnum(self.type) < @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_LAST))
         {
@@ -189,7 +189,7 @@ pub const UPowerDevice = struct {
         return "unknown";
     }
 
-    pub fn type_int(_: *const UPowerDevice, device: *[]u8) i64 {
+    pub fn typeInt(_: *const UPowerDevice, device: *[]u8) i64 {
         for (UPowerDeviceType, 0..) |dtype, idx| {
             if (std.mem.eql(@tagName(dtype), device)) {
                 return idx;
@@ -197,9 +197,9 @@ pub const UPowerDevice = struct {
         }
         return -1;
     }
-};
 
-pub fn print_device(dev: *const UPowerDevice) void {
-    std.debug.print("Device: {s}\n", .{dev.native_path.?});
-    std.debug.print("  Type: {}\n", .{dev.type});
-}
+    pub fn print(self: *const UPowerDevice) void {
+        std.debug.print("Device: {s}\n", .{self.native_path.?});
+        std.debug.print("  Type: {}\n", .{self.type});
+    }
+};
