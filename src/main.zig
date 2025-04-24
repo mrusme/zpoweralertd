@@ -1,5 +1,6 @@
 const std = @import("std");
 const bus = @import("bus.zig");
+const state = @import("state.zig");
 const upower = @import("upower.zig");
 
 pub fn main() !void {
@@ -20,13 +21,13 @@ pub fn main() !void {
     const coach = try bus.init(gpa);
     defer coach.deinit();
 
-    const state = try upower.State.init(coach.system_bus, gpa);
-    defer state.deinit();
+    const condition = try coach.start();
+    defer condition.deinit();
 
     std.debug.print("entering main loop\n", .{});
     while (true) {
         std.debug.print("entering for devices\n", .{});
-        for (state.devices.items) |*device| {
+        for (condition.devices.items) |*device| {
             defer {
                 device.last = device.current;
             }
@@ -67,7 +68,7 @@ pub fn main() !void {
         }
 
         std.debug.print("entering for removed_devices\n", .{});
-        for (state.removed_devices.items) |*device| {
+        for (condition.removed_devices.items) |*device| {
 
             // if ((ignore_types_mask & (@as(c_uint, 1) << device.type))) {
             //     continue;

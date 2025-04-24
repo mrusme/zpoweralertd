@@ -2,6 +2,7 @@ const std = @import("std");
 const sd_bus = @cImport(@cInclude("elogind/sd-bus.h"));
 const dbus = @cImport(@cInclude("dbus.h"));
 const upower = @import("upower.zig");
+const state = @import("state.zig");
 
 const NOTIFICATION_MAX_LEN = 128;
 
@@ -13,7 +14,16 @@ const Urgency = enum {
     URGENCY_CRITICAL,
 };
 
-pub fn init(allocator: std.mem.Allocator) !Bus {
+const BusError =
+    std.mem.Allocator.Error ||
+    error{SystemBusInitError} ||
+    error{UserBusInitError} ||
+    error{MessageReadError} ||
+    error{DeviceEnumError} ||
+    error{ConteinerEnterError} ||
+    error{MatchAddError};
+
+pub fn init(allocator: std.mem.Allocator) BusError!Bus {
     var bus = Bus{
         .allocator = allocator,
         .user_bus = undefined,
@@ -45,6 +55,24 @@ pub fn init(allocator: std.mem.Allocator) !Bus {
     return bus;
 }
 
+fn handle_upower_device_added(
+    m: ?*sd_bus.sd_bus_message,
+    userdata: ?*anyopaque,
+    ret_error: [*c]sd_bus.sd_bus_error,
+) callconv(.C) c_int {
+    std.debug.print("Received signal #{any} #{any} #{any}\n", .{ m, userdata, ret_error });
+    return 0;
+}
+
+fn handle_upower_device_removed(
+    m: ?*sd_bus.sd_bus_message,
+    userdata: ?*anyopaque,
+    ret_error: [*c]sd_bus.sd_bus_error,
+) callconv(.C) c_int {
+    std.debug.print("Received signal #{any} #{any} #{any}\n", .{ m, userdata, ret_error });
+    return 0;
+}
+
 pub const Bus = struct {
     allocator: std.mem.Allocator,
     user_bus: *sd_bus.struct_sd_bus,
@@ -57,6 +85,134 @@ pub const Bus = struct {
         self.allocator.destroy(self.system_bus_ptr);
         _ = sd_bus.sd_bus_unref(self.user_bus);
         self.allocator.destroy(self.user_bus_ptr);
+    }
+
+    pub fn start(self: *const Bus) BusError!*state.State {
+        var msg: ?*sd_bus.sd_bus_message = null;
+        var err: sd_bus.sd_bus_error = std.mem.zeroInit(sd_bus.sd_bus_error, .{});
+        defer {
+            _ = sd_bus.sd_bus_message_unref(msg);
+            _ = sd_bus.sd_bus_error_free(&err);
+        }
+
+        const condition = try state.init(self.allocator);
+
+        if (sd_bus.sd_bus_add_match(
+            self.system_bus,
+            null,
+            "type='signal',path='/org/freedesktop/UPower',interface='org.freedesktop.UPower',member='DeviceAdded'",
+            handle_upower_device_added,
+            condition,
+        ) < 0) {
+            std.debug.print("Failed to add match\n", .{});
+            return error.MatchAddError;
+        }
+
+        if (sd_bus.sd_bus_add_match(
+            self.system_bus,
+            null,
+            "type='signal',path='/org/freedesktop/UPower',interface='org.freedesktop.UPower',member='DeviceRemoved'",
+            handle_upower_device_removed,
+            condition,
+        ) < 0) {
+            std.debug.print("Failed to add match\n", .{});
+            return error.MatchAddError;
+        }
+
+        if (sd_bus.sd_bus_call_method(
+            self.system_bus,
+            "org.freedesktop.UPower",
+            "/org/freedesktop/UPower",
+            "org.freedesktop.UPower",
+            "EnumerateDevices",
+            &err,
+            &msg,
+            "",
+        ) < 0) {
+            std.debug.print("{any}: {any}\n", .{ err, msg });
+            return error.DeviceEnumError;
+        }
+
+        if (sd_bus.sd_bus_message_enter_container(msg, 'a', "o") < 0) {
+            std.debug.print("{any}: {any}\n", .{ err, msg });
+            return error.ConteinerEnterError;
+        }
+
+        std.debug.print("sd_bus_call_method: {any} | {any}\n", .{ err, msg });
+
+        while (true) {
+            var path: [*c]const u8 = null;
+            const ret = sd_bus.sd_bus_message_read(msg, "o", &path);
+            if (ret < 0) {
+                std.debug.print("{d}: {any}: {any}\n", .{ ret, path, msg });
+                return error.MessageReadError;
+            } else if (ret == 0) {
+                std.debug.print("sd_bus_message_read returned 0\n", .{});
+                break;
+            }
+
+            // const path_ptr = sd_bus.sd_bus_message_get_path(msg);
+            // const member_ptr = sd_bus.sd_bus_message_get_member(msg);
+            //
+            // if (path_ptr != null and member_ptr != null) {
+            //     std.debug.print("Message from path: {s}, member: {s}\n", .{ path_ptr, member_ptr });
+            // } else {
+            //     std.debug.print("Message path or member is null: path={any}, member={any}\n", .{ path_ptr, member_ptr });
+            // }
+            //
+            // const sig = sd_bus.sd_bus_message_get_signature(msg, 1);
+            // std.debug.print("Signature: {s}\n", .{sig});
+
+            std.debug.print("sd_bus_message_read read, checking path ...\n", .{});
+            if (path) |p| {
+                std.debug.print("Path: {s}\n", .{p});
+
+                const device = blk: {
+                    const props = upower.UPowerDeviceProps{
+                        .generation = 1,
+                        .online = 1,
+                        .percentage = 100.0,
+                        .state = .UPOWER_DEVICE_STATE_FULLY_CHARGED,
+                        .warning_level = .UPOWER_DEVICE_LEVEL_NONE,
+                        .battery_level = .UPOWER_DEVICE_LEVEL_NONE,
+                    };
+
+                    break :blk upower.UPowerDevice{
+                        // TODO: free
+                        .path = try std.fmt.allocPrintZ(condition.*.allocator, "#{s}", .{p}),
+                        .native_path = null,
+                        .model = null,
+                        .power_supply = 1,
+                        .type = upower.DeviceType.BATTERY,
+
+                        .current = props,
+                        .last = props,
+
+                        .notifications = [_]u32{ 0, 0, 0 },
+                        .slot = undefined,
+                    };
+                };
+
+                try condition.*.devices.append(condition.*.allocator, device);
+
+                // C:
+                // ret = upower_device_register_notification(bus, device);
+                // if (ret < 0) {
+                //     goto error;
+                // }
+                // ret = upower_device_update_state(bus, device);
+                // if (ret < 0) {
+                //     goto error;
+                // }
+
+            } else {
+                std.debug.print("path empty\n", .{});
+            }
+        }
+
+        _ = sd_bus.sd_bus_message_exit_container(msg);
+
+        return condition;
     }
 
     pub fn process(self: *const Bus) i32 {
