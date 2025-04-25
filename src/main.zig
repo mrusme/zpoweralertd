@@ -120,18 +120,22 @@ pub fn main() !void {
                 std.debug.print("device.last = device.current\n", .{});
                 device.last = device.current;
             }
-            if ((args.ignore_types_mask & (@as(u32, 1) << @intCast(@intFromEnum(device.type))) == 0)) {
+            std.debug.print("\n\n1 typemask: {d}\n\n", .{(args.ignore_types_mask & (@as(u32, 1) << @intCast(@intFromEnum(device.type))))});
+            if ((args.ignore_types_mask & (@as(u32, 1) << @intCast(@intFromEnum(device.type))) != 0)) {
                 // device.last = device.current;
+                std.debug.print("Ignore mask hit, continuing\n", .{});
                 continue;
             }
 
             if (!initialized and args.ignore_initial) {
                 // device.last = device.current;
+                std.debug.print("Not initialized and ignore_initial is on, continuing\n", .{});
                 continue;
             }
 
             if (args.ignore_non_power_supplies and device.power_supply != 0) {
                 // device.last = device.current;
+                std.debug.print("ignore_non_power_supplies on and device.power_supply is {d}, continuing\n", .{device.power_supply});
                 continue;
             }
 
@@ -162,7 +166,8 @@ pub fn main() !void {
 
         std.debug.print("entering for removed_devices\n", .{});
         for (the_state.removed_devices.items, 0..) |device, idx| {
-            if ((args.ignore_types_mask & (@as(u32, 1) << @intCast(@intFromEnum(device.type)))) == 0) {
+            std.debug.print("\n\n2 typemask: {d}\n\n", .{(args.ignore_types_mask & (@as(u32, 1) << @intCast(@intFromEnum(device.type))))});
+            if ((args.ignore_types_mask & (@as(u32, 1) << @intCast(@intFromEnum(device.type)))) != 0) {
                 continue;
             }
 

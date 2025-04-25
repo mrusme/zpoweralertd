@@ -131,11 +131,11 @@ pub fn init(allocator: std.mem.Allocator, p: [*c]const u8) !*UPowerDevice {
     device.* = blk: {
         const props = UPowerDeviceProps{
             .generation = 1,
-            .online = 1,
-            .percentage = 100.0,
-            .state = .UPOWER_DEVICE_STATE_FULLY_CHARGED,
-            .warning_level = .UPOWER_DEVICE_LEVEL_NONE,
-            .battery_level = .UPOWER_DEVICE_LEVEL_NONE,
+            .online = 0,
+            .percentage = 0.0,
+            .state = .UPOWER_DEVICE_STATE_UNKNOWN,
+            .warning_level = .UPOWER_DEVICE_LEVEL_UNKNOWN,
+            .battery_level = .UPOWER_DEVICE_LEVEL_UNKNOWN,
         };
 
         break :blk UPowerDevice{
@@ -144,7 +144,7 @@ pub fn init(allocator: std.mem.Allocator, p: [*c]const u8) !*UPowerDevice {
             .native_path = null,
             .model = null,
             .power_supply = 1,
-            .type = DeviceType.BATTERY,
+            .type = DeviceType.UNKNOWN,
 
             .current = props,
             .last = props,

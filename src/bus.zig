@@ -407,8 +407,6 @@ pub const Bus = struct {
             std.debug.print("sd_bus_message_read read, checking path ...\n", .{});
             if (path) |p| {
                 std.debug.print("Path: {s}\n", .{p});
-
-                // TODO ADD HERE DEVICE
                 const device = try self.dto.state.addDevice(p);
 
                 // C:
@@ -416,7 +414,10 @@ pub const Bus = struct {
                 // if (ret < 0) {
                 //     goto error;
                 // }
-                try self.registerDevicePropertiesChanged(device);
+                self.registerDevicePropertiesChanged(device) catch |er| {
+                    std.debug.print("ERROR registerDevicePropertiesChanged: {any}", .{er});
+                    return er;
+                };
 
                 // C:
                 // ret = upower_device_update_state(bus, device);
@@ -445,6 +446,8 @@ pub const Bus = struct {
     pub fn registerDevicePropertiesChanged(self: *const Bus, device: *upower.UPowerDevice) !void {
         var match: [:0]u8 = undefined;
         var match_buf: [512:0]u8 = undefined;
+
+        std.debug.print("registerDevicePropertiesChanged: {?s}\n", .{device.path});
 
         if (device.path) |p| {
             match = try std.fmt.bufPrintZ(&match_buf, "type='signal',path='{s}',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'", .{p});
@@ -479,6 +482,17 @@ pub const Bus = struct {
 
         std.debug.print("updateDeviceState: {?s}\n", .{device.path});
 
+        std.debug.print("-------------------------------------------------\n", .{});
+        std.debug.print("old device state:\n", .{});
+        std.debug.print("native_path: {?s}\n", .{device.native_path});
+        std.debug.print("model: {?s}\n", .{device.model});
+        std.debug.print("power_supply: {?}\n", .{device.power_supply});
+        std.debug.print("type: {?}\n", .{device.type});
+        std.debug.print("current.online: {?}\n", .{device.current.online});
+        std.debug.print("current.state: {?}\n", .{device.current.state});
+        std.debug.print("current.warning_level: {?}\n", .{device.current.warning_level});
+        std.debug.print("current.battery_level: {?}\n", .{device.current.battery_level});
+        std.debug.print("current.percentage: {?}\n", .{device.current.percentage});
         var tmp: [*c]u8 = null;
 
         if (sd_bus.sd_bus_get_property_string(
@@ -612,6 +626,18 @@ pub const Bus = struct {
             std.debug.print("Failed to update property\n", .{});
             return error.PropertyUpdateError;
         }
+        std.debug.print("---\n", .{});
+        std.debug.print("new device state:\n", .{});
+        std.debug.print("native_path: {?s}\n", .{device.native_path});
+        std.debug.print("model: {?s}\n", .{device.model});
+        std.debug.print("power_supply: {?}\n", .{device.power_supply});
+        std.debug.print("type: {?}\n", .{device.type});
+        std.debug.print("current.online: {?}\n", .{device.current.online});
+        std.debug.print("current.state: {?}\n", .{device.current.state});
+        std.debug.print("current.warning_level: {?}\n", .{device.current.warning_level});
+        std.debug.print("current.battery_level: {?}\n", .{device.current.battery_level});
+        std.debug.print("current.percentage: {?}\n", .{device.current.percentage});
+        std.debug.print("-------------------------------------------------\n", .{});
     }
 
     pub fn sendNotification(self: *const Bus, summary: [:0]const u8, body: [:0]const u8, category: [:0]const u8, id: ?u32, urgency: Urgency) !void {
@@ -691,24 +717,41 @@ pub const Bus = struct {
     }
 
     pub fn sendOnlineUpdateNotification(self: *const Bus, device: *upower.UPowerDevice) !void {
+        std.debug.print("sendOnlineUpdateNotification: {?s}\n", .{device.path});
+        std.debug.print("current.state: {d}\n", .{@intFromEnum(device.current.state)});
+        std.debug.print("last.state: {d}\n", .{@intFromEnum(device.last.state)});
+
         if (device.current.online == device.last.online) {
             return;
         }
 
         var title: [NOTIFICATION_MAX_LEN]u8 = undefined;
         var cstr: [:0]u8 = undefined;
+        var cstr_set: bool = false;
         var msg: [:0]u8 = undefined;
         var msg_buf: [128:0]u8 = undefined;
         var category: [:0]u8 = undefined;
         var category_buf: [64:0]u8 = undefined;
 
-        if (std.mem.len(device.model.?) > 0) {
-            cstr = try std.fmt.bufPrintZ(&title, "Power status: {s}", .{device.model.?});
-        } else {
-            cstr = try std.fmt.bufPrintZ(&title, "Power status: {s} ({s})", .{ device.native_path.?, @tagName(device.type) });
+        if (device.model) |model| {
+            if (std.mem.len(model) > 0) {
+                cstr = try std.fmt.bufPrintZ(&title, "Power status: {s}", .{model});
+                cstr_set = true;
+            }
+        }
+        if (!cstr_set) {
+            if (device.native_path) |native_path| {
+                cstr = try std.fmt.bufPrintZ(&title, "Power status: {s} ({s})", .{ native_path, @tagName(device.type) });
+            } else {
+                if (device.path) |path| {
+                    cstr = try std.fmt.bufPrintZ(&title, "Power status: {s} ({s})", .{ path, @tagName(device.type) });
+                } else {
+                    cstr = try std.fmt.bufPrintZ(&title, "Power status: UNKNOWN ({s})", .{@tagName(device.type)});
+                }
+            }
         }
 
-        if (device.current.online == 0) {
+        if (device.current.online != 0) {
             msg = try std.fmt.bufPrintZ(&msg_buf, "Power supply online", .{});
             category = try std.fmt.bufPrintZ(&category_buf, "power.online", .{});
         } else {
@@ -721,6 +764,9 @@ pub const Bus = struct {
 
     pub fn sendStateUpdateNotification(self: *const Bus, device: *upower.UPowerDevice) !void {
         std.debug.print("sendStateUpdateNotification: {?s}\n", .{device.path});
+        std.debug.print("current.state: {d}\n", .{@intFromEnum(device.current.state)});
+        std.debug.print("last.state: {d}\n", .{@intFromEnum(device.last.state)});
+
         if (device.current.state == device.last.state) {
             return;
         }

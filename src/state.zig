@@ -33,11 +33,12 @@ pub const State = struct {
     }
 
     pub fn addDevice(self: *State, p: [*c]const u8) !*upower.UPowerDevice {
-        std.debug.print("addDevice with path: {s}", .{p});
+        std.debug.print("addDevice with path: {s}\n", .{p});
 
         const device = try upower.init(self.allocator, p);
         try self.devices.append(self.allocator, device);
 
+        std.debug.print("device added!\n", .{});
         return device;
     }
 
