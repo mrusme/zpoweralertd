@@ -21,6 +21,14 @@ pub const State = struct {
     removed_devices: std.ArrayListUnmanaged(*upower.UPowerDevice),
 
     pub fn deinit(self: *State) void {
+        for (self.devices.items) |device| {
+            device.deinit();
+        }
+        self.devices.deinit(self.allocator);
+        for (self.removed_devices.items) |device| {
+            device.deinit();
+        }
+        self.removed_devices.deinit(self.allocator);
         self.allocator.destroy(self);
     }
 

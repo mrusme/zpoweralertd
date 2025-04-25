@@ -140,7 +140,6 @@ pub fn init(allocator: std.mem.Allocator, p: [*c]const u8) !*UPowerDevice {
 
         break :blk UPowerDevice{
             .allocator = allocator,
-            // TODO: free
             .path = try std.fmt.allocPrintZ(allocator, "{s}", .{p}),
             .native_path = null,
             .model = null,
@@ -182,11 +181,16 @@ pub const UPowerDevice = struct {
     slot: ?*sd_bus.sd_bus_slot,
 
     pub fn deinit(self: *UPowerDevice) void {
-        if (self.path) |path| {
-            self.allocator.free(path[0..std.mem.len(path)]);
+        if (self.path) |prop| {
+            self.allocator.free(prop[0..(std.mem.len(prop) + 1)]);
         }
-        // TODO
-        // self.allocator.free(self);
+        if (self.native_path) |prop| {
+            self.allocator.free(prop[0..(std.mem.len(prop) + 1)]);
+        }
+        if (self.model) |prop| {
+            self.allocator.free(prop[0..(std.mem.len(prop) + 1)]);
+        }
+        self.allocator.destroy(self);
     }
 
     pub fn hasBattery(self: *const UPowerDevice) bool {

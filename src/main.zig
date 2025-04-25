@@ -4,7 +4,18 @@ const state = @import("state.zig");
 const upower = @import("upower.zig");
 
 pub fn main() !void {
-    const gpa = std.heap.page_allocator;
+    const gpallocator = std.heap.page_allocator;
+    //
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    // defer {
+    //     std.debug.print("EXIT\n", .{});
+    //     const deinit_status = gpa.deinit();
+    //     if (deinit_status == .leak) {
+    //         @panic("LEAK");
+    //     }
+    // }
+    // const gpallocator = gpa.allocator();
+    //
     // var opt: i32 = 0;
     // var device_type: i32 = 0;
     // const ignore_types_mask: c_uint = 0;
@@ -18,14 +29,14 @@ pub fn main() !void {
         return error.ClockError;
     }
 
-    const the_bus = try bus.init(gpa);
+    const the_bus = try bus.init(gpallocator);
     defer the_bus.deinit();
 
     const the_state = try the_bus.start();
-    defer the_state.deinit();
 
     std.debug.print("entering main loop\n", .{});
-    while (true) {
+    var active = true;
+    while (active) {
         std.debug.print("entering for(devices)\n", .{});
         for (the_state.devices.items) |device| {
             defer {
@@ -115,6 +126,8 @@ pub fn main() !void {
         }
 
         std.debug.print("loop\n", .{});
+        // For debug:
+        // active = false;
     }
 
     // finish:

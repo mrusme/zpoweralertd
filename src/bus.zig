@@ -313,6 +313,8 @@ pub const Bus = struct {
     dto: *DTO,
 
     pub fn deinit(self: *const Bus) void {
+        self.dto.state.deinit();
+
         self.allocator.destroy(self.dto);
         _ = sd_bus.sd_bus_unref(self.system_bus);
         self.allocator.destroy(self.system_bus_ptr);
@@ -492,7 +494,7 @@ pub const Bus = struct {
             return error.PropertyUpdateError;
         }
         if (device.native_path) |prop| {
-            std.c.free(@constCast(prop));
+            device.allocator.free(prop[0..(std.mem.len(prop) + 1)]);
         }
         device.native_path = try std.fmt.allocPrintZ(device.allocator, "{s}", .{tmp});
 
@@ -509,7 +511,7 @@ pub const Bus = struct {
             return error.PropertyUpdateError;
         }
         if (device.model) |prop| {
-            std.c.free(@constCast(prop));
+            device.allocator.free(prop[0..(std.mem.len(prop) + 1)]);
         }
         device.model = try std.fmt.allocPrintZ(device.allocator, "{s}", .{tmp});
 
