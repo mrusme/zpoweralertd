@@ -26,9 +26,10 @@ pub fn main() !void {
 
     std.debug.print("entering main loop\n", .{});
     while (true) {
-        std.debug.print("entering for devices\n", .{});
-        for (the_state.devices.items) |*device| {
+        std.debug.print("entering for(devices)\n", .{});
+        for (the_state.devices.items) |device| {
             defer {
+                std.debug.print("device.last = device.current\n", .{});
                 device.last = device.current;
             }
             // if ((ignore_types_mask & (@as(c_uint, 1) << @as(u5, @intFromEnum(device.type))))) {
@@ -45,6 +46,10 @@ pub fn main() !void {
                 // device.last = device.current;
                 continue;
             }
+
+            std.debug.print("Processing device: {?s}\n", .{
+                device.path,
+            });
 
             if (device.hasBattery()) {
                 the_bus.sendStateUpdateNotification(device) catch |err| {
@@ -68,7 +73,7 @@ pub fn main() !void {
         }
 
         std.debug.print("entering for removed_devices\n", .{});
-        for (the_state.removed_devices.items) |*device| {
+        for (the_state.removed_devices.items, 0..) |device, idx| {
 
             // if ((ignore_types_mask & (@as(c_uint, 1) << device.type))) {
             //     continue;
@@ -83,8 +88,9 @@ pub fn main() !void {
                 //     fprintf(stderr, "could not send device removal notification: #{s}\n", strerror(-ret));
                 //     // goto finish;
             };
+            device.deinit();
             // upower_device_destroy(device);
-            // list_del(state.removed_devices, idx);
+            _ = try the_state.removeDevice(idx);
         }
 
         std.debug.print("sd_bus_process\n", .{});
@@ -103,7 +109,7 @@ pub fn main() !void {
             // goto finish;
         }
 
-        std.debug.print("initialized?\n", .{});
+        std.debug.print("initialized? {}\n", .{initialized});
         if (!initialized) {
             initialized = millisecondsSince(&start) > 500;
         }
@@ -113,7 +119,6 @@ pub fn main() !void {
 
     // finish:
     // destroy_upower(system_bus, &state);
-
 }
 
 pub fn millisecondsSince(start: *const std.os.linux.timespec) f64 {

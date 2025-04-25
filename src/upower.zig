@@ -126,6 +126,38 @@ pub const ChangeSlot = enum(usize) {
     SLOT_ONLINE = 2,
 };
 
+pub fn init(allocator: std.mem.Allocator, p: [*c]const u8) !*UPowerDevice {
+    const device = try allocator.create(UPowerDevice);
+    device.* = blk: {
+        const props = UPowerDeviceProps{
+            .generation = 1,
+            .online = 1,
+            .percentage = 100.0,
+            .state = .UPOWER_DEVICE_STATE_FULLY_CHARGED,
+            .warning_level = .UPOWER_DEVICE_LEVEL_NONE,
+            .battery_level = .UPOWER_DEVICE_LEVEL_NONE,
+        };
+
+        break :blk UPowerDevice{
+            .allocator = allocator,
+            // TODO: free
+            .path = try std.fmt.allocPrintZ(allocator, "{s}", .{p}),
+            .native_path = null,
+            .model = null,
+            .power_supply = 1,
+            .type = DeviceType.BATTERY,
+
+            .current = props,
+            .last = props,
+
+            .notifications = [_]u32{ 0, 0, 0 },
+            .slot = undefined,
+        };
+    };
+
+    return device;
+}
+
 pub const UPowerDeviceProps = struct {
     generation: i32,
     online: i32,
@@ -148,6 +180,14 @@ pub const UPowerDevice = struct {
 
     notifications: [3]u32,
     slot: ?*sd_bus.sd_bus_slot,
+
+    pub fn deinit(self: *UPowerDevice) void {
+        if (self.path) |path| {
+            self.allocator.free(path[0..std.mem.len(path)]);
+        }
+        // TODO
+        // self.allocator.free(self);
+    }
 
     pub fn hasBattery(self: *const UPowerDevice) bool {
         return @intFromEnum(self.type) != @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_LINE_POWER) and

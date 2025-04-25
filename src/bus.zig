@@ -83,7 +83,7 @@ fn handleDeviceAdded(
         }
 
         if (path) |p| {
-            for (dto.state.devices.items) |*device| {
+            for (dto.state.devices.items) |device| {
                 if (device.path) |dp| {
                     if (std.mem.eql(u8, std.mem.span(p), std.mem.span(dp))) {
                         // upower_device_update_state
@@ -100,13 +100,13 @@ fn handleDeviceAdded(
             for (dto.state.removed_devices.items, 0..) |device, idx| {
                 if (device.path) |dp| {
                     if (std.mem.eql(u8, std.mem.span(p), std.mem.span(dp))) {
-                        var removed_device = dto.state.removed_devices.orderedRemove(idx);
+                        const removed_device = dto.state.removed_devices.orderedRemove(idx);
                         dto.state.devices.append(dto.state.allocator, removed_device) catch |err| {
                             std.debug.print("could not un-remove device: {any}\n", .{err});
                             return -1;
                         };
                         // upower_device_update_state
-                        dto.bus.updateDeviceState(&removed_device) catch |err| {
+                        dto.bus.updateDeviceState(removed_device) catch |err| {
                             std.debug.print("updateDeviceState error: {any}\n", .{err});
                             return -1;
                         };
@@ -117,15 +117,15 @@ fn handleDeviceAdded(
                 }
             }
 
-            var device = dto.state.addDevice(p) catch |err| {
+            const device = dto.state.addDevice(p) catch |err| {
                 std.debug.print("could not addDevice: {any}\n", .{err});
                 return -1;
             };
-            dto.bus.registerDevicePropertiesChanged(&device) catch |err| {
+            dto.bus.registerDevicePropertiesChanged(device) catch |err| {
                 std.debug.print("could not registerDevicePropertiesChanged: {any}\n", .{err});
                 return -1;
             };
-            dto.bus.updateDeviceState(&device) catch |err| {
+            dto.bus.updateDeviceState(device) catch |err| {
                 std.debug.print("updateDeviceState error: {any}\n", .{err});
                 return -1;
             };
@@ -143,7 +143,7 @@ fn handleDeviceRemoved(
     userdata: ?*anyopaque,
     ret_error: [*c]sd_bus.sd_bus_error,
 ) callconv(.C) c_int {
-    std.debug.print("handleDevicePropertiesChanged {any} {any} {any}\n", .{ msg, userdata, ret_error });
+    std.debug.print("handleDeviceRemoved {any} {any} {any}\n", .{ msg, userdata, ret_error });
     if (userdata) |ud| {
         const dto: *DTO = @ptrCast(@alignCast(ud));
 
@@ -189,16 +189,21 @@ fn handleDevicePropertiesChanged(
         const dto: *DTO = @ptrCast(@alignCast(ud));
         const device = dto.device.?;
 
+        std.debug.print("0 {?s}\n", .{device.path});
+
+        std.debug.print("1 Skipping message\n", .{});
         if (sd_bus.sd_bus_message_skip(msg, "s") < 0) {
             std.debug.print("{any}\n", .{msg});
             return -1;
         }
+        std.debug.print("2 Entering container\n", .{});
         if (sd_bus.sd_bus_message_enter_container(msg, 'a', "{sv}") < 0) {
             std.debug.print("{any}\n", .{msg});
             return -1;
         }
 
         while (true) {
+            std.debug.print("3 Entering another container\n", .{});
             const ret = sd_bus.sd_bus_message_enter_container(msg, 'e', "sv");
             if (ret < 0) {
                 std.debug.print("{any}\n", .{msg});
@@ -208,38 +213,46 @@ fn handleDevicePropertiesChanged(
             }
 
             var name: [*c]const u8 = null;
+            std.debug.print("4 Reading message\n", .{});
             if (sd_bus.sd_bus_message_read(msg, "s", &name) < 0) {
                 std.debug.print("{d}: {any}\n", .{ ret, msg });
                 return -1;
             }
 
             if (name) |n| {
+                std.debug.print("5 Checking message\n", .{});
                 if (std.mem.eql(u8, std.mem.span(n), "State")) {
+                    std.debug.print("Reading state message\n", .{});
                     if (sd_bus.sd_bus_message_read(msg, "v", "u", &device.current.state) < 0) {
                         std.debug.print("{d}: {any}\n", .{ ret, msg });
                         return -1;
                     }
                 } else if (std.mem.eql(u8, std.mem.span(n), "WarningLevel")) {
+                    std.debug.print("Reading warning level message\n", .{});
                     if (sd_bus.sd_bus_message_read(msg, "v", "u", &device.current.warning_level) < 0) {
                         std.debug.print("{d}: {any}\n", .{ ret, msg });
                         return -1;
                     }
                 } else if (std.mem.eql(u8, std.mem.span(n), "BatteryLevel")) {
+                    std.debug.print("Reading battery level message\n", .{});
                     if (sd_bus.sd_bus_message_read(msg, "v", "u", &device.current.battery_level) < 0) {
                         std.debug.print("{d}: {any}\n", .{ ret, msg });
                         return -1;
                     }
                 } else if (std.mem.eql(u8, std.mem.span(n), "Online")) {
+                    std.debug.print("Reading online message\n", .{});
                     if (sd_bus.sd_bus_message_read(msg, "v", "b", &device.current.online) < 0) {
                         std.debug.print("{d}: {any}\n", .{ ret, msg });
                         return -1;
                     }
                 } else if (std.mem.eql(u8, std.mem.span(n), "Percentage")) {
+                    std.debug.print("Reading percentage message\n", .{});
                     if (sd_bus.sd_bus_message_read(msg, "v", "d", &device.current.percentage) < 0) {
                         std.debug.print("{d}: {any}\n", .{ ret, msg });
                         return -1;
                     }
                 } else {
+                    std.debug.print("Skipping message\n", .{});
                     if (sd_bus.sd_bus_message_skip(msg, "v") < 0) {
                         std.debug.print("{any}\n", .{msg});
                         return -1;
@@ -249,22 +262,26 @@ fn handleDevicePropertiesChanged(
                 return -1;
             }
 
+            std.debug.print("6 Exiting container\n", .{});
             if (sd_bus.sd_bus_message_exit_container(msg) < 0) {
                 std.debug.print("{any}\n", .{msg});
                 return -1;
             }
         }
 
+        std.debug.print("7 Exiting container\n", .{});
         if (sd_bus.sd_bus_message_exit_container(msg) < 0) {
             std.debug.print("{any}\n", .{msg});
             return -1;
         }
+        std.debug.print("8 Entering container\n", .{});
         if (sd_bus.sd_bus_message_enter_container(msg, 'a', "s") < 0) {
             std.debug.print("{any}\n", .{msg});
             return -1;
         }
 
         while (true) {
+            std.debug.print("Skipping message\n", .{});
             const ret = sd_bus.sd_bus_message_skip(msg, "s");
             if (ret < 0) {
                 std.debug.print("{any}\n", .{msg});
@@ -274,6 +291,7 @@ fn handleDevicePropertiesChanged(
             }
         }
 
+        std.debug.print("9 Exiting container\n", .{});
         if (sd_bus.sd_bus_message_exit_container(msg) < 0) {
             std.debug.print("{any}\n", .{msg});
             return -1;
@@ -389,21 +407,21 @@ pub const Bus = struct {
                 std.debug.print("Path: {s}\n", .{p});
 
                 // TODO ADD HERE DEVICE
-                var device = try self.dto.state.addDevice(p);
+                const device = try self.dto.state.addDevice(p);
 
                 // C:
                 // ret = upower_device_register_notification(bus, device);
                 // if (ret < 0) {
                 //     goto error;
                 // }
-                try self.registerDevicePropertiesChanged(&device);
+                try self.registerDevicePropertiesChanged(device);
 
                 // C:
                 // ret = upower_device_update_state(bus, device);
                 // if (ret < 0) {
                 //     goto error;
                 // }
-                try self.updateDeviceState(&device);
+                try self.updateDeviceState(device);
             } else {
                 std.debug.print("path empty\n", .{});
             }
@@ -456,6 +474,8 @@ pub const Bus = struct {
         defer {
             _ = sd_bus.sd_bus_error_free(&err);
         }
+
+        std.debug.print("updateDeviceState: {?s}\n", .{device.path});
 
         var tmp: [*c]u8 = null;
 
@@ -600,6 +620,12 @@ pub const Bus = struct {
             _ = sd_bus.sd_bus_error_free(&err);
         }
 
+        std.debug.print("Sending notification: {s}\n{s}\nCategory: {s}\n---\n", .{
+            summary,
+            body,
+            category,
+        });
+
         var ret = sd_bus.sd_bus_call_method(
             self.user_bus,
             "org.freedesktop.Notifications",
@@ -663,9 +689,9 @@ pub const Bus = struct {
     }
 
     pub fn sendOnlineUpdateNotification(self: *const Bus, device: *upower.UPowerDevice) !void {
-        // if (device.current.online == device.last.online) {
-        //   return 0;
-        // }
+        if (device.current.online == device.last.online) {
+            return;
+        }
 
         var title: [NOTIFICATION_MAX_LEN]u8 = undefined;
         var cstr: [:0]u8 = undefined;
@@ -692,9 +718,10 @@ pub const Bus = struct {
     }
 
     pub fn sendStateUpdateNotification(self: *const Bus, device: *upower.UPowerDevice) !void {
-        // if (device.current.state == device.last.state) {
-        //   return 0;
-        // }
+        std.debug.print("sendStateUpdateNotification: {?s}\n", .{device.path});
+        if (device.current.state == device.last.state) {
+            return;
+        }
 
         var urgency: Urgency = .URGENCY_NORMAL;
         var title: [NOTIFICATION_MAX_LEN]u8 = undefined;
@@ -703,6 +730,7 @@ pub const Bus = struct {
         var msg_buf: [128:0]u8 = undefined;
         // var category: []u8 = "";
 
+        std.debug.print("sendStateUpdateNotification->check current.state: {s}\n", .{@tagName(device.current.state)});
         switch (device.current.state) {
             .UPOWER_DEVICE_STATE_UNKNOWN => {
 
@@ -718,6 +746,7 @@ pub const Bus = struct {
             },
         }
 
+        std.debug.print("sendStateUpdateNotification->check model\n", .{});
         if (device.model) |model| {
             if (std.mem.len(model) > 0) {
                 cstr = try std.fmt.bufPrintZ(&title, "Power status: {s}", .{model});
@@ -736,9 +765,9 @@ pub const Bus = struct {
     }
 
     pub fn sendWarningUpdateNotification(self: *const Bus, device: *upower.UPowerDevice) !void {
-        // if (device.current.warning_level == device.last.warning_level) {
-        //   return 0;
-        // }
+        if (device.current.warning_level == device.last.warning_level) {
+            return;
+        }
 
         if (device.current.warning_level == .UPOWER_DEVICE_LEVEL_NONE and device.last.warning_level == .UPOWER_DEVICE_LEVEL_UNKNOWN) {
             return;
