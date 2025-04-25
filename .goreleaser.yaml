@@ -11,8 +11,8 @@ builds:
       - -Doptimize=ReleaseSafe
       - -Dversion-string={{ .Env.VERSION }}
     targets:
-      - aarch64-linux
-      - arm-linux
+      # - aarch64-linux
+      # - arm-linux
       - x86_64-linux-gnu
       - x86_64-linux-musl
 
