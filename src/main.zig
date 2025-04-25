@@ -3,8 +3,73 @@ const bus = @import("bus.zig");
 const state = @import("state.zig");
 const upower = @import("upower.zig");
 
+const Args = struct {
+    ignore_types_mask: u32 = 0,
+    ignore_initial: bool = false,
+    ignore_non_power_supplies: bool = false,
+    initialized: bool = false,
+    verbose: bool = false,
+};
+
+const ArgParseError = error{ MissingArgs, InvalidArgs, ProgramEnd };
+
+fn display_usage(program_name: []const u8) void {
+    const fmt =
+        \\usage: {s} [options]
+        \\
+        \\Options:
+        \\  -h                show this help message
+        \\  -i <device_type>  ignore this device type, can be use several times
+        \\  -s                ignore the events at startup
+        \\  -S                only use the events coming from power supplies
+        \\  -v                show the version number
+        \\  -V                verbose output
+        \\
+        \\
+    ;
+    std.debug.print(fmt, .{program_name});
+}
+
+fn parseArgs(argv: [][:0]u8) ArgParseError!Args {
+    const program_name = std.fs.path.basename(argv[0]);
+    var args = Args{};
+
+    var optind: usize = 1;
+    while (optind < argv.len and argv[optind][0] == '-') {
+        if (std.mem.eql(u8, argv[optind], "-V")) {
+            args.verbose = true;
+        } else if (std.mem.eql(u8, argv[optind], "-s")) {
+            args.ignore_initial = true;
+        } else if (std.mem.eql(u8, argv[optind], "-S")) {
+            args.ignore_non_power_supplies = true;
+        } else if (std.mem.eql(u8, argv[optind], "-v")) {
+            std.debug.print("zpoweralertd version {s}\n", .{"0.0.0"});
+            return error.ProgramEnd;
+        } else if (std.mem.eql(u8, argv[optind], "-i")) {
+            if (optind + 1 >= argv.len) {
+                display_usage(program_name);
+                return error.MissingArgs;
+            }
+            optind += 1;
+            const device_type = std.meta.stringToEnum(upower.UPowerDeviceType, argv[optind]);
+            if (device_type) |dt| {
+                if (@intFromEnum(dt) > -1) {
+                    args.ignore_types_mask |= @as(u32, 1) << @intCast(@intFromEnum(dt));
+                }
+            }
+        } else {
+            display_usage(program_name);
+            std.debug.print("Unknown option: {s}\n", .{argv[optind]});
+            return error.InvalidArgs;
+        }
+        optind += 1;
+    }
+
+    return args;
+}
+
 pub fn main() !void {
-    const gpallocator = std.heap.page_allocator;
+    const allocator = std.heap.page_allocator;
     //
     // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     // defer {
@@ -14,13 +79,21 @@ pub fn main() !void {
     //         @panic("LEAK");
     //     }
     // }
-    // const gpallocator = gpa.allocator();
+    // const allocator = gpa.allocator();
     //
-    // var opt: i32 = 0;
-    // var device_type: i32 = 0;
-    // const ignore_types_mask: c_uint = 0;
-    const ignore_initial: bool = false;
-    const ignore_non_power_supplies: bool = false;
+    const argv = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, argv);
+    const args = parseArgs(argv) catch |err| {
+        switch (err) {
+            error.ProgramEnd => {
+                std.process.exit(0);
+            },
+            else => {
+                std.process.exit(1);
+            },
+        }
+    };
+
     var initialized: bool = false;
 
     var start: std.os.linux.timespec = undefined;
@@ -29,13 +102,17 @@ pub fn main() !void {
         return error.ClockError;
     }
 
-    const the_bus = try bus.init(gpallocator);
+    const the_bus = try bus.init(allocator);
     defer the_bus.deinit();
 
     const the_state = try the_bus.start();
 
     std.debug.print("entering main loop\n", .{});
+
+    // For debug (see bottom):
     var active = true;
+    active = true;
+
     while (active) {
         std.debug.print("entering for(devices)\n", .{});
         for (the_state.devices.items) |device| {
@@ -43,17 +120,17 @@ pub fn main() !void {
                 std.debug.print("device.last = device.current\n", .{});
                 device.last = device.current;
             }
-            // if ((ignore_types_mask & (@as(c_uint, 1) << @as(u5, @intFromEnum(device.type))))) {
-            // device.last = device.current;
-            // continue;
-            // }
-
-            if (!initialized and ignore_initial) {
+            if ((args.ignore_types_mask & (@as(u32, 1) << @intCast(@intFromEnum(device.type))) == 0)) {
                 // device.last = device.current;
                 continue;
             }
 
-            if (ignore_non_power_supplies and !device.power_supply) {
+            if (!initialized and args.ignore_initial) {
+                // device.last = device.current;
+                continue;
+            }
+
+            if (args.ignore_non_power_supplies and device.power_supply != 0) {
                 // device.last = device.current;
                 continue;
             }
@@ -85,12 +162,11 @@ pub fn main() !void {
 
         std.debug.print("entering for removed_devices\n", .{});
         for (the_state.removed_devices.items, 0..) |device, idx| {
+            if ((args.ignore_types_mask & (@as(u32, 1) << @intCast(@intFromEnum(device.type)))) == 0) {
+                continue;
+            }
 
-            // if ((ignore_types_mask & (@as(c_uint, 1) << device.type))) {
-            //     continue;
-            // }
-
-            if (ignore_non_power_supplies and !device.power_supply) {
+            if (args.ignore_non_power_supplies and device.power_supply != 0) {
                 continue;
             }
 
