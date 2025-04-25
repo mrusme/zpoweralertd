@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - uses: mlugg/setup-zig@v1
+      with:
+        version: 0.14.0
+
+    - name: Set version
+      run: |
+        export TAG="${{ github.ref_name }}"
+        echo "VERSION=${TAG#v}"
+        echo "VERSION=${TAG#v}" >> $GITHUB_ENV
+
+    - name: Get version
+      run: |
+        echo "$VERSION"
+
+    - uses: goreleaser/goreleaser-action@v6
+      with:
+        distribution: goreleaser
+        version: "nightly"
+        args: release --clean --timeout 80m
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
