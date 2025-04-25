@@ -23,4 +23,38 @@ pub const State = struct {
     pub fn deinit(self: *State) void {
         self.allocator.destroy(self);
     }
+
+    pub fn addDevice(self: *State, p: [*c]const u8) !upower.UPowerDevice {
+        std.debug.print("addDevice with path: {s}", .{p});
+        const device = blk: {
+            const props = upower.UPowerDeviceProps{
+                .generation = 1,
+                .online = 1,
+                .percentage = 100.0,
+                .state = .UPOWER_DEVICE_STATE_FULLY_CHARGED,
+                .warning_level = .UPOWER_DEVICE_LEVEL_NONE,
+                .battery_level = .UPOWER_DEVICE_LEVEL_NONE,
+            };
+
+            break :blk upower.UPowerDevice{
+                .allocator = self.allocator,
+                // TODO: free
+                .path = try std.fmt.allocPrintZ(self.allocator, "{s}", .{p}),
+                .native_path = null,
+                .model = null,
+                .power_supply = 1,
+                .type = upower.DeviceType.BATTERY,
+
+                .current = props,
+                .last = props,
+
+                .notifications = [_]u32{ 0, 0, 0 },
+                .slot = undefined,
+            };
+        };
+
+        try self.devices.append(self.allocator, device);
+
+        return device;
+    }
 };

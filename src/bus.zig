@@ -25,6 +25,12 @@ const BusError =
     error{ConteinerEnterError} ||
     error{MatchAddError};
 
+pub const DTO = struct {
+    bus: *const Bus,
+    state: *state.State,
+    device: ?*upower.UPowerDevice,
+};
+
 pub fn init(allocator: std.mem.Allocator) BusError!Bus {
     var bus = Bus{
         .allocator = allocator,
@@ -32,6 +38,7 @@ pub fn init(allocator: std.mem.Allocator) BusError!Bus {
         .user_bus_ptr = undefined,
         .system_bus = undefined,
         .system_bus_ptr = undefined,
+        .dto = undefined,
     };
 
     bus.user_bus_ptr = try bus.allocator.create(?*sd_bus.sd_bus);
@@ -54,33 +61,228 @@ pub fn init(allocator: std.mem.Allocator) BusError!Bus {
     }
     bus.system_bus = bus.system_bus_ptr.*.?;
 
+    bus.dto = try bus.allocator.create(DTO);
+
     return bus;
 }
 
 fn handleDeviceAdded(
-    m: ?*sd_bus.sd_bus_message,
+    msg: ?*sd_bus.sd_bus_message,
     userdata: ?*anyopaque,
     ret_error: [*c]sd_bus.sd_bus_error,
 ) callconv(.C) c_int {
-    std.debug.print("Received signal {any} {any} {any}\n", .{ m, userdata, ret_error });
+    std.debug.print("handleDeviceAdded {any} {any} {any}\n", .{ msg, userdata, ret_error });
+    if (userdata) |ud| {
+        const dto: *DTO = @ptrCast(@alignCast(ud));
+
+        var path: [*c]const u8 = null;
+        const ret = sd_bus.sd_bus_message_read(msg, "o", &path);
+        if (ret < 0) {
+            std.debug.print("{d}: {any}: {any}\n", .{ ret, path, msg });
+            return -1;
+        }
+
+        if (path) |p| {
+            for (dto.state.devices.items) |*device| {
+                if (device.path) |dp| {
+                    if (std.mem.eql(u8, std.mem.span(p), std.mem.span(dp))) {
+                        // upower_device_update_state
+                        dto.bus.updateDeviceState(device) catch |err| {
+                            std.debug.print("updateDeviceState error: {any}\n", .{err});
+                            return -1;
+                        };
+                        return 0;
+                    }
+                } else {
+                    continue;
+                }
+            }
+            for (dto.state.removed_devices.items, 0..) |device, idx| {
+                if (device.path) |dp| {
+                    if (std.mem.eql(u8, std.mem.span(p), std.mem.span(dp))) {
+                        var removed_device = dto.state.removed_devices.orderedRemove(idx);
+                        dto.state.devices.append(dto.state.allocator, removed_device) catch |err| {
+                            std.debug.print("could not un-remove device: {any}\n", .{err});
+                            return -1;
+                        };
+                        // upower_device_update_state
+                        dto.bus.updateDeviceState(&removed_device) catch |err| {
+                            std.debug.print("updateDeviceState error: {any}\n", .{err});
+                            return -1;
+                        };
+                        return 0;
+                    }
+                } else {
+                    continue;
+                }
+            }
+
+            var device = dto.state.addDevice(p) catch |err| {
+                std.debug.print("could not addDevice: {any}\n", .{err});
+                return -1;
+            };
+            dto.bus.registerDevicePropertiesChanged(&device) catch |err| {
+                std.debug.print("could not registerDevicePropertiesChanged: {any}\n", .{err});
+                return -1;
+            };
+            dto.bus.updateDeviceState(&device) catch |err| {
+                std.debug.print("updateDeviceState error: {any}\n", .{err});
+                return -1;
+            };
+        } else {
+            return -1;
+        }
+    } else {
+        return -1;
+    }
     return 0;
 }
 
 fn handleDeviceRemoved(
-    m: ?*sd_bus.sd_bus_message,
+    msg: ?*sd_bus.sd_bus_message,
     userdata: ?*anyopaque,
     ret_error: [*c]sd_bus.sd_bus_error,
 ) callconv(.C) c_int {
-    std.debug.print("Received signal {any} {any} {any}\n", .{ m, userdata, ret_error });
+    std.debug.print("handleDevicePropertiesChanged {any} {any} {any}\n", .{ msg, userdata, ret_error });
+    if (userdata) |ud| {
+        const dto: *DTO = @ptrCast(@alignCast(ud));
+
+        var path: [*c]const u8 = null;
+        const ret = sd_bus.sd_bus_message_read(msg, "o", &path);
+        if (ret < 0) {
+            std.debug.print("{d}: {any}: {any}\n", .{ ret, path, msg });
+            return -1;
+        }
+
+        if (path) |p| {
+            for (dto.state.devices.items, 0..) |device, idx| {
+                if (device.path) |dp| {
+                    if (std.mem.eql(u8, std.mem.span(p), std.mem.span(dp))) {
+                        const removed_device = dto.state.devices.orderedRemove(idx);
+                        dto.state.removed_devices.append(dto.state.allocator, removed_device) catch |err| {
+                            std.debug.print("could not remove device: {any}\n", .{err});
+                            return -1;
+                        };
+                        return 0;
+                    }
+                } else {
+                    continue;
+                }
+            }
+        } else {
+            return -1;
+        }
+    } else {
+        return -1;
+    }
+
     return 0;
 }
 
 fn handleDevicePropertiesChanged(
-    m: ?*sd_bus.sd_bus_message,
+    msg: ?*sd_bus.sd_bus_message,
     userdata: ?*anyopaque,
     ret_error: [*c]sd_bus.sd_bus_error,
 ) callconv(.C) c_int {
-    std.debug.print("Received signal {any} {any} {any}\n", .{ m, userdata, ret_error });
+    std.debug.print("handleDevicePropertiesChanged {any} {any} {any}\n", .{ msg, userdata, ret_error });
+    if (userdata) |ud| {
+        const dto: *DTO = @ptrCast(@alignCast(ud));
+        const device = dto.device.?;
+
+        if (sd_bus.sd_bus_message_skip(msg, "s") < 0) {
+            std.debug.print("{any}\n", .{msg});
+            return -1;
+        }
+        if (sd_bus.sd_bus_message_enter_container(msg, 'a', "{sv}") < 0) {
+            std.debug.print("{any}\n", .{msg});
+            return -1;
+        }
+
+        while (true) {
+            const ret = sd_bus.sd_bus_message_enter_container(msg, 'e', "sv");
+            if (ret < 0) {
+                std.debug.print("{any}\n", .{msg});
+                return -1;
+            } else if (ret == 0) {
+                break;
+            }
+
+            var name: [*c]const u8 = null;
+            if (sd_bus.sd_bus_message_read(msg, "s", &name) < 0) {
+                std.debug.print("{d}: {any}\n", .{ ret, msg });
+                return -1;
+            }
+
+            if (name) |n| {
+                if (std.mem.eql(u8, std.mem.span(n), "State")) {
+                    if (sd_bus.sd_bus_message_read(msg, "v", "u", &device.current.state) < 0) {
+                        std.debug.print("{d}: {any}\n", .{ ret, msg });
+                        return -1;
+                    }
+                } else if (std.mem.eql(u8, std.mem.span(n), "WarningLevel")) {
+                    if (sd_bus.sd_bus_message_read(msg, "v", "u", &device.current.warning_level) < 0) {
+                        std.debug.print("{d}: {any}\n", .{ ret, msg });
+                        return -1;
+                    }
+                } else if (std.mem.eql(u8, std.mem.span(n), "BatteryLevel")) {
+                    if (sd_bus.sd_bus_message_read(msg, "v", "u", &device.current.battery_level) < 0) {
+                        std.debug.print("{d}: {any}\n", .{ ret, msg });
+                        return -1;
+                    }
+                } else if (std.mem.eql(u8, std.mem.span(n), "Online")) {
+                    if (sd_bus.sd_bus_message_read(msg, "v", "b", &device.current.online) < 0) {
+                        std.debug.print("{d}: {any}\n", .{ ret, msg });
+                        return -1;
+                    }
+                } else if (std.mem.eql(u8, std.mem.span(n), "Percentage")) {
+                    if (sd_bus.sd_bus_message_read(msg, "v", "d", &device.current.percentage) < 0) {
+                        std.debug.print("{d}: {any}\n", .{ ret, msg });
+                        return -1;
+                    }
+                } else {
+                    if (sd_bus.sd_bus_message_skip(msg, "v") < 0) {
+                        std.debug.print("{any}\n", .{msg});
+                        return -1;
+                    }
+                }
+            } else {
+                return -1;
+            }
+
+            if (sd_bus.sd_bus_message_exit_container(msg) < 0) {
+                std.debug.print("{any}\n", .{msg});
+                return -1;
+            }
+        }
+
+        if (sd_bus.sd_bus_message_exit_container(msg) < 0) {
+            std.debug.print("{any}\n", .{msg});
+            return -1;
+        }
+        if (sd_bus.sd_bus_message_enter_container(msg, 'a', "s") < 0) {
+            std.debug.print("{any}\n", .{msg});
+            return -1;
+        }
+
+        while (true) {
+            const ret = sd_bus.sd_bus_message_skip(msg, "s");
+            if (ret < 0) {
+                std.debug.print("{any}\n", .{msg});
+                return -1;
+            } else if (ret == 0) {
+                break;
+            }
+        }
+
+        if (sd_bus.sd_bus_message_exit_container(msg) < 0) {
+            std.debug.print("{any}\n", .{msg});
+            return -1;
+        }
+    } else {
+        // TODO: Errrrr....
+        return -1;
+    }
+
     return 0;
 }
 
@@ -90,8 +292,10 @@ pub const Bus = struct {
     user_bus_ptr: *?*sd_bus.sd_bus,
     system_bus: *sd_bus.struct_sd_bus,
     system_bus_ptr: *?*sd_bus.sd_bus,
+    dto: *DTO,
 
     pub fn deinit(self: *const Bus) void {
+        self.allocator.destroy(self.dto);
         _ = sd_bus.sd_bus_unref(self.system_bus);
         self.allocator.destroy(self.system_bus_ptr);
         _ = sd_bus.sd_bus_unref(self.user_bus);
@@ -108,12 +312,18 @@ pub const Bus = struct {
 
         const the_state = try state.init(self.allocator);
 
+        self.dto.* = DTO{
+            .bus = self,
+            .state = the_state,
+            .device = undefined,
+        };
+
         if (sd_bus.sd_bus_add_match(
             self.system_bus,
             null,
             "type='signal',path='/org/freedesktop/UPower',interface='org.freedesktop.UPower',member='DeviceAdded'",
             handleDeviceAdded,
-            the_state,
+            self.dto,
         ) < 0) {
             std.debug.print("Failed to add match\n", .{});
             return error.MatchAddError;
@@ -124,7 +334,7 @@ pub const Bus = struct {
             null,
             "type='signal',path='/org/freedesktop/UPower',interface='org.freedesktop.UPower',member='DeviceRemoved'",
             handleDeviceRemoved,
-            the_state,
+            self.dto,
         ) < 0) {
             std.debug.print("Failed to add match\n", .{});
             return error.MatchAddError;
@@ -178,34 +388,8 @@ pub const Bus = struct {
             if (path) |p| {
                 std.debug.print("Path: {s}\n", .{p});
 
-                var device = blk: {
-                    const props = upower.UPowerDeviceProps{
-                        .generation = 1,
-                        .online = 1,
-                        .percentage = 100.0,
-                        .state = .UPOWER_DEVICE_STATE_FULLY_CHARGED,
-                        .warning_level = .UPOWER_DEVICE_LEVEL_NONE,
-                        .battery_level = .UPOWER_DEVICE_LEVEL_NONE,
-                    };
-
-                    break :blk upower.UPowerDevice{
-                        .allocator = the_state.*.allocator,
-                        // TODO: free
-                        .path = try std.fmt.allocPrintZ(the_state.*.allocator, "{s}", .{p}),
-                        .native_path = null,
-                        .model = null,
-                        .power_supply = 1,
-                        .type = upower.DeviceType.BATTERY,
-
-                        .current = props,
-                        .last = props,
-
-                        .notifications = [_]u32{ 0, 0, 0 },
-                        .slot = undefined,
-                    };
-                };
-
-                try the_state.*.devices.append(the_state.*.allocator, device);
+                // TODO ADD HERE DEVICE
+                var device = try self.dto.state.addDevice(p);
 
                 // C:
                 // ret = upower_device_register_notification(bus, device);
@@ -251,12 +435,14 @@ pub const Bus = struct {
 
         std.debug.print("Adding match for {s}\n", .{match});
 
+        self.dto.device = device;
+
         const ret = sd_bus.sd_bus_add_match(
             self.system_bus,
             &device.slot,
             match,
             handleDevicePropertiesChanged,
-            device,
+            self.dto,
         );
         if (ret < 0) {
             std.debug.print("Failed to add match {d}\n", .{ret});
@@ -264,6 +450,7 @@ pub const Bus = struct {
         }
     }
 
+    // upower_device_update_state
     pub fn updateDeviceState(self: *const Bus, device: *upower.UPowerDevice) !void {
         var err: sd_bus.sd_bus_error = std.mem.zeroInit(sd_bus.sd_bus_error, .{});
         defer {
