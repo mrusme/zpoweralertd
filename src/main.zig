@@ -2,6 +2,9 @@ const std = @import("std");
 const bus = @import("bus.zig");
 const state = @import("state.zig");
 const upower = @import("upower.zig");
+const build_options = @import("build_options");
+
+const VERSION = build_options.version;
 
 const Args = struct {
     ignore_types_mask: u32 = 0,
@@ -43,7 +46,7 @@ fn parseArgs(argv: [][:0]u8) ArgParseError!Args {
         } else if (std.mem.eql(u8, argv[optind], "-S")) {
             args.ignore_non_power_supplies = true;
         } else if (std.mem.eql(u8, argv[optind], "-v")) {
-            std.debug.print("zpoweralertd version {s}\n", .{"0.0.0"});
+            std.debug.print("zpoweralertd version {s}\n", .{VERSION});
             return error.ProgramEnd;
         } else if (std.mem.eql(u8, argv[optind], "-i")) {
             if (optind + 1 >= argv.len) {

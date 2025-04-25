@@ -14,6 +14,13 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
+    const exe_options = b.addOptions();
+
+    const opt_version_string = b.option([]const u8, "version-string", "Override version string");
+    const v = if (opt_version_string) |version| version else "0.0.0";
+    exe_options.addOption([]const u8, "version", v);
+    exe.root_module.addOptions("build_options", exe_options);
+
     exe.linkLibC();
     exe.linkSystemLibrary("elogind");
 
