@@ -28,22 +28,11 @@ jobs:
       run: |
         echo "$VERSION"
 
-    - name: Install elogind 
+    - name: Install build dependencies
       run: |
         export DEBIAN_FRONTEND=noninteractive 
         sudo apt update 
-        sudo apt install -y build-essential wget meson ninja-build gperf git cmake pkg-config libcap-dev libmount-dev libudev-dev python3-jinja2 systemd-dev
-        cd /tmp
-        wget https://github.com/elogind/elogind/archive/refs/tags/v255.17.tar.gz
-        tar -xzf ./v*.tar.gz
-        cd elogind-*
-        mkdir build 
-        cd build 
-        meson setup .. --prefix=/usr --buildtype=release -D man=auto -D docdir=/usr/share/doc/elogind -D cgroup-controller=elogind -D dev-kvm-mode=0660 -D dbuspolicydir=/etc/dbus-1/system.d && ninja && sudo ninja install
-        sudo ln -sfv  libelogind.pc /usr/lib/pkgconfig/libsystemd.pc 
-        sudo ln -sfv  libelogind.pc /usr/lib/pkgconfig/libelogind.pc 
-        sudo ln -sfvn elogind /usr/include/systemd
-        cd
+        sudo apt install -y pkg-config libsystemd-dev
 
     - uses: goreleaser/goreleaser-action@v6
       with:

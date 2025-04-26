@@ -19,10 +19,13 @@ pub fn build(b: *std.Build) void {
     const opt_version_string = b.option([]const u8, "version-string", "Override version string");
     const v = if (opt_version_string) |version| version else "0.0.0";
     exe_options.addOption([]const u8, "version", v);
-    exe.root_module.addOptions("build_options", exe_options);
 
     exe.linkLibC();
-    exe.linkSystemLibrary("elogind");
+
+    const dbusLib = detectLib(b.allocator, exe);
+    exe_options.addOption(i32, "dbuslib", dbusLib);
+
+    exe.root_module.addOptions("build_options", exe_options);
 
     b.installArtifact(exe);
 
@@ -44,4 +47,29 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
+}
+
+fn detectLib(allocator: std.mem.Allocator, exe: *std.Build.Step.Compile) i32 {
+    if (tryPkgConfig(allocator, exe, "basu")) return 0;
+    if (tryPkgConfig(allocator, exe, "libelogind")) return 1;
+    if (tryPkgConfig(allocator, exe, "libsystemd")) return 2;
+
+    std.debug.panic("No supported system library found (basu, elogind, systemd)", .{});
+}
+
+fn tryPkgConfig(allocator: std.mem.Allocator, exe: *std.Build.Step.Compile, libname: []const u8) bool {
+    var child = std.process.Child.init(&[_][]const u8{
+        "pkg-config", "--exists", libname,
+    }, allocator);
+
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
+
+    const result = child.spawnAndWait() catch return false;
+
+    if (result == .Exited and result.Exited == 0) {
+        exe.linkSystemLibrary(libname);
+        return true;
+    }
+    return false;
 }
