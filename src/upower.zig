@@ -140,6 +140,7 @@ pub fn init(allocator: std.mem.Allocator, p: [*c]const u8) !*UPowerDevice {
 
         break :blk UPowerDevice{
             .allocator = allocator,
+            .match_properties_changed = try std.fmt.allocPrintZ(allocator, "type='signal',path='{s}',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'", .{p}),
             .path = try std.fmt.allocPrintZ(allocator, "{s}", .{p}),
             .native_path = null,
             .model = null,
@@ -168,6 +169,7 @@ pub const UPowerDeviceProps = struct {
 
 pub const UPowerDevice = struct {
     allocator: std.mem.Allocator,
+    match_properties_changed: ?[*:0]const u8,
     path: ?[*:0]const u8,
     native_path: ?[*:0]const u8,
     model: ?[*:0]const u8,
@@ -181,6 +183,9 @@ pub const UPowerDevice = struct {
     slot: ?*sd_bus.sd_bus_slot,
 
     pub fn deinit(self: *UPowerDevice) void {
+        if (self.match_properties_changed) |prop| {
+            self.allocator.free(prop[0..(std.mem.len(prop) + 1)]);
+        }
         if (self.path) |prop| {
             self.allocator.free(prop[0..(std.mem.len(prop) + 1)]);
         }

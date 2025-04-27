@@ -33,45 +33,10 @@ const BusError =
     error{MatchAddError};
 
 pub const DTO = struct {
-    bus: *const Bus,
+    bus: *Bus,
     state: *state.State,
     device: ?*upower.UPowerDevice,
 };
-
-pub fn init(allocator: std.mem.Allocator) BusError!Bus {
-    var bus = Bus{
-        .allocator = allocator,
-        .user_bus = undefined,
-        .user_bus_ptr = undefined,
-        .system_bus = undefined,
-        .system_bus_ptr = undefined,
-        .dto = undefined,
-    };
-
-    bus.user_bus_ptr = try bus.allocator.create(?*sd_bus.sd_bus);
-    bus.user_bus_ptr.* = null;
-
-    const r_user = sd_bus.sd_bus_open_user(bus.user_bus_ptr);
-    if (r_user < 0) {
-        std.debug.print("Failed to open user bus: {}\n", .{r_user});
-        return error.UserBusInitError;
-    }
-    bus.user_bus = bus.user_bus_ptr.*.?;
-
-    bus.system_bus_ptr = try bus.allocator.create(?*sd_bus.sd_bus);
-    bus.system_bus_ptr.* = null;
-
-    const r_system = sd_bus.sd_bus_open_system(bus.system_bus_ptr);
-    if (r_system < 0) {
-        std.debug.print("Failed to open system bus: {}\n", .{r_system});
-        return error.SystemBusInitError;
-    }
-    bus.system_bus = bus.system_bus_ptr.*.?;
-
-    bus.dto = try bus.allocator.create(DTO);
-
-    return bus;
-}
 
 fn handleDeviceAdded(
     msg: ?*sd_bus.sd_bus_message,
@@ -80,7 +45,7 @@ fn handleDeviceAdded(
 ) callconv(.C) c_int {
     std.debug.print("handleDeviceAdded {any} {any} {any}\n", .{ msg, userdata, ret_error });
     if (userdata) |ud| {
-        const dto: *DTO = @ptrCast(@alignCast(ud));
+        var dto: *DTO = @ptrCast(@alignCast(ud));
 
         var path: [*c]const u8 = null;
         const ret = sd_bus.sd_bus_message_read(msg, "o", &path);
@@ -311,25 +276,64 @@ fn handleDevicePropertiesChanged(
     return 0;
 }
 
+pub fn init(allocator: std.mem.Allocator) BusError!Bus {
+    var bus = Bus{
+        .allocator = allocator,
+        .user_bus = undefined,
+        .user_bus_ptr = undefined,
+        .system_bus = undefined,
+        .system_bus_ptr = undefined,
+        .state = undefined,
+        .dtos = std.ArrayListUnmanaged(*DTO){},
+    };
+
+    bus.user_bus_ptr = try bus.allocator.create(?*sd_bus.sd_bus);
+    bus.user_bus_ptr.* = null;
+
+    const r_user = sd_bus.sd_bus_open_user(bus.user_bus_ptr);
+    if (r_user < 0) {
+        std.debug.print("Failed to open user bus: {}\n", .{r_user});
+        return error.UserBusInitError;
+    }
+    bus.user_bus = bus.user_bus_ptr.*.?;
+
+    bus.system_bus_ptr = try bus.allocator.create(?*sd_bus.sd_bus);
+    bus.system_bus_ptr.* = null;
+
+    const r_system = sd_bus.sd_bus_open_system(bus.system_bus_ptr);
+    if (r_system < 0) {
+        std.debug.print("Failed to open system bus: {}\n", .{r_system});
+        return error.SystemBusInitError;
+    }
+    bus.system_bus = bus.system_bus_ptr.*.?;
+
+    return bus;
+}
+
 pub const Bus = struct {
     allocator: std.mem.Allocator,
     user_bus: *sd_bus.struct_sd_bus,
     user_bus_ptr: *?*sd_bus.sd_bus,
     system_bus: *sd_bus.struct_sd_bus,
     system_bus_ptr: *?*sd_bus.sd_bus,
-    dto: *DTO,
+    state: *state.State,
+    dtos: std.ArrayListUnmanaged(*DTO),
 
-    pub fn deinit(self: *const Bus) void {
-        self.dto.state.deinit();
+    pub fn deinit(self: *Bus) void {
+        for (self.dtos.items) |dto| {
+            self.allocator.destroy(dto);
+        }
+        self.dtos.deinit(self.allocator);
 
-        self.allocator.destroy(self.dto);
+        self.state.deinit();
+
         _ = sd_bus.sd_bus_unref(self.system_bus);
         self.allocator.destroy(self.system_bus_ptr);
         _ = sd_bus.sd_bus_unref(self.user_bus);
         self.allocator.destroy(self.user_bus_ptr);
     }
 
-    pub fn start(self: *const Bus) BusError!*state.State {
+    pub fn start(self: *Bus) BusError!*state.State {
         var msg: ?*sd_bus.sd_bus_message = null;
         var err: sd_bus.sd_bus_error = std.mem.zeroInit(sd_bus.sd_bus_error, .{});
         defer {
@@ -337,20 +341,22 @@ pub const Bus = struct {
             _ = sd_bus.sd_bus_error_free(&err);
         }
 
-        const the_state = try state.init(self.allocator);
+        self.state = try state.init(self.allocator);
 
-        self.dto.* = DTO{
+        const dto = try self.allocator.create(DTO);
+        dto.* = DTO{
             .bus = self,
-            .state = the_state,
+            .state = self.state,
             .device = undefined,
         };
+        try self.dtos.append(self.allocator, dto);
 
         if (sd_bus.sd_bus_add_match(
             self.system_bus,
             null,
             "type='signal',path='/org/freedesktop/UPower',interface='org.freedesktop.UPower',member='DeviceAdded'",
             handleDeviceAdded,
-            self.dto,
+            dto,
         ) < 0) {
             std.debug.print("Failed to add match\n", .{});
             return error.MatchAddError;
@@ -361,7 +367,7 @@ pub const Bus = struct {
             null,
             "type='signal',path='/org/freedesktop/UPower',interface='org.freedesktop.UPower',member='DeviceRemoved'",
             handleDeviceRemoved,
-            self.dto,
+            dto,
         ) < 0) {
             std.debug.print("Failed to add match\n", .{});
             return error.MatchAddError;
@@ -414,7 +420,7 @@ pub const Bus = struct {
             std.debug.print("sd_bus_message_read read, checking path ...\n", .{});
             if (path) |p| {
                 std.debug.print("Path: {s}\n", .{p});
-                const device = try self.dto.state.addDevice(p);
+                const device = try self.state.addDevice(p);
 
                 // C:
                 // ret = upower_device_register_notification(bus, device);
@@ -439,7 +445,7 @@ pub const Bus = struct {
 
         _ = sd_bus.sd_bus_message_exit_container(msg);
 
-        return the_state;
+        return self.state;
     }
 
     pub fn process(self: *const Bus) i32 {
@@ -450,32 +456,33 @@ pub const Bus = struct {
         return sd_bus.sd_bus_wait(self.system_bus, std.math.maxInt(u64));
     }
 
-    pub fn registerDevicePropertiesChanged(self: *const Bus, device: *upower.UPowerDevice) !void {
-        var match: [:0]u8 = undefined;
-        var match_buf: [512:0]u8 = undefined;
-
+    pub fn registerDevicePropertiesChanged(self: *Bus, device: *upower.UPowerDevice) !void {
         std.debug.print("registerDevicePropertiesChanged: {?s}\n", .{device.path});
 
-        if (device.path) |p| {
-            match = try std.fmt.bufPrintZ(&match_buf, "type='signal',path='{s}',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'", .{p});
+        if (device.match_properties_changed) |match| {
+            std.debug.print("Adding match for {s}\n", .{match});
+
+            const dto = try self.allocator.create(DTO);
+            dto.* = DTO{
+                .bus = self,
+                .state = self.state,
+                .device = device,
+            };
+            try self.dtos.append(self.allocator, dto);
+
+            const ret = sd_bus.sd_bus_add_match(
+                self.system_bus,
+                &device.slot,
+                match,
+                handleDevicePropertiesChanged,
+                dto,
+            );
+            if (ret < 0) {
+                std.debug.print("Failed to add match {d}\n", .{ret});
+                return error.MatchAddError;
+            }
         } else {
-            std.debug.print("Failed to add match (path empty)\n", .{});
-            return error.MatchAddError;
-        }
-
-        std.debug.print("Adding match for {s}\n", .{match});
-
-        self.dto.device = device;
-
-        const ret = sd_bus.sd_bus_add_match(
-            self.system_bus,
-            &device.slot,
-            match,
-            handleDevicePropertiesChanged,
-            self.dto,
-        );
-        if (ret < 0) {
-            std.debug.print("Failed to add match {d}\n", .{ret});
+            std.debug.print("Failed to add match (empty)\n", .{});
             return error.MatchAddError;
         }
     }
@@ -788,7 +795,6 @@ pub const Bus = struct {
         std.debug.print("sendStateUpdateNotification->check current.state: {s}\n", .{@tagName(device.current.state)});
         switch (device.current.state) {
             .UPOWER_DEVICE_STATE_UNKNOWN => {
-
                 // Silence transitions to/from unknown
                 device.current.state = device.last.state;
                 return;

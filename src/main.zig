@@ -105,7 +105,7 @@ pub fn main() !void {
         return error.ClockError;
     }
 
-    const the_bus = try bus.init(allocator);
+    var the_bus = try bus.init(allocator);
     defer the_bus.deinit();
 
     const the_state = try the_bus.start();
@@ -193,7 +193,9 @@ pub fn main() !void {
         if (ret < 0) {
             std.debug.print("could not process system bus messages: {d}\n", .{ret});
             // goto finish;
+            break;
         } else if (ret > 0) {
+            std.debug.print("sd_bus_process: continue\n", .{});
             continue;
         }
 
