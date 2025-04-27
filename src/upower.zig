@@ -207,7 +207,7 @@ pub const UPowerDevice = struct {
         if (@intFromEnum(self.current.state) >= @intFromEnum(UPowerDeviceState.UPOWER_DEVICE_STATE_UNKNOWN) and
             @intFromEnum(self.current.state) < @intFromEnum(UPowerDeviceState.UPOWER_DEVICE_STATE_LAST))
         {
-            return @tagName(self.current.state);
+            return @tagName(self.current.state)[20..];
         }
         return "unknown";
     }
@@ -216,7 +216,7 @@ pub const UPowerDevice = struct {
         if (@intFromEnum(self.current.warning_level) >= @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_UNKNOWN) and
             @intFromEnum(self.current.warning_level) < @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_LAST))
         {
-            return @tagName(self.current.warning_level);
+            return @tagName(self.current.warning_level)[20..];
         }
         return "unknown";
     }
@@ -225,7 +225,7 @@ pub const UPowerDevice = struct {
         if (@intFromEnum(self.current.battery_level) >= @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_UNKNOWN) and
             @intFromEnum(self.current.battery_level) < @intFromEnum(UPowerDeviceLevel.UPOWER_DEVICE_LEVEL_LAST))
         {
-            return @tagName(self.current.battery_level);
+            return @tagName(self.current.battery_level)[20..];
         }
         return "unknown";
     }
@@ -234,7 +234,7 @@ pub const UPowerDevice = struct {
         if (@intFromEnum(self.type) >= @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_UNKNOWN) and
             @intFromEnum(self.type) < @intFromEnum(UPowerDeviceType.UPOWER_DEVICE_TYPE_LAST))
         {
-            return @tagName(self.type);
+            return @tagName(self.type)[19..];
         }
         return "unknown";
     }
