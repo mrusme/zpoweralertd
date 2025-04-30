@@ -785,6 +785,21 @@ pub const Bus = struct {
             return;
         }
 
+        // Fix for https://lists.sr.ht/~kennylevinsen/poweralertd-devel/%3C66a8abdc-54cc-4f19-af5d-648f773a7fa2@xn--gckvb8fzb.com%3E
+        if (device.current.state == .UPOWER_DEVICE_STATE_CHARGING and
+            device.last.state == .UPOWER_DEVICE_STATE_FULLY_CHARGED and
+            device.current.percentage == 100)
+        {
+            return;
+        }
+        if (device.current.state == .UPOWER_DEVICE_STATE_FULLY_CHARGED and
+            device.current.percentage == 100 and
+            device.last.state == .UPOWER_DEVICE_STATE_CHARGING and
+            device.last.percentage == 100)
+        {
+            return;
+        }
+
         var urgency: Urgency = .URGENCY_NORMAL;
         var title: [NOTIFICATION_MAX_LEN]u8 = undefined;
         var cstr: [:0]u8 = undefined;
