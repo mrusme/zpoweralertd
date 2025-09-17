@@ -140,8 +140,8 @@ pub fn init(allocator: std.mem.Allocator, p: [*c]const u8) !*UPowerDevice {
 
         break :blk UPowerDevice{
             .allocator = allocator,
-            .match_properties_changed = try std.fmt.allocPrintZ(allocator, "type='signal',path='{s}',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'", .{p}),
-            .path = try std.fmt.allocPrintZ(allocator, "{s}", .{p}),
+            .match_properties_changed = try std.fmt.allocPrintSentinel(allocator, "type='signal',path='{s}',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'", .{p}, 0),
+            .path = try std.fmt.allocPrintSentinel(allocator, "{s}", .{p}, 0),
             .native_path = null,
             .model = null,
             .power_supply = 1,

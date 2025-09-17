@@ -42,7 +42,7 @@ fn handleDeviceAdded(
     msg: ?*sd_bus.sd_bus_message,
     userdata: ?*anyopaque,
     ret_error: [*c]sd_bus.sd_bus_error,
-) callconv(.C) c_int {
+) callconv(.c) c_int {
     std.debug.print("handleDeviceAdded {any} {any} {any}\n", .{ msg, userdata, ret_error });
     if (userdata) |ud| {
         var dto: *DTO = @ptrCast(@alignCast(ud));
@@ -114,7 +114,7 @@ fn handleDeviceRemoved(
     msg: ?*sd_bus.sd_bus_message,
     userdata: ?*anyopaque,
     ret_error: [*c]sd_bus.sd_bus_error,
-) callconv(.C) c_int {
+) callconv(.c) c_int {
     std.debug.print("handleDeviceRemoved {any} {any} {any}\n", .{ msg, userdata, ret_error });
     if (userdata) |ud| {
         const dto: *DTO = @ptrCast(@alignCast(ud));
@@ -155,7 +155,7 @@ fn handleDevicePropertiesChanged(
     msg: ?*sd_bus.sd_bus_message,
     userdata: ?*anyopaque,
     ret_error: [*c]sd_bus.sd_bus_error,
-) callconv(.C) c_int {
+) callconv(.c) c_int {
     std.debug.print("handleDevicePropertiesChanged {any} {any} {any}\n", .{ msg, userdata, ret_error });
     if (userdata) |ud| {
         const dto: *DTO = @ptrCast(@alignCast(ud));
@@ -500,13 +500,13 @@ pub const Bus = struct {
         std.debug.print("old device state:\n", .{});
         std.debug.print("native_path: {?s}\n", .{device.native_path});
         std.debug.print("model: {?s}\n", .{device.model});
-        std.debug.print("power_supply: {?}\n", .{device.power_supply});
-        std.debug.print("type: {?}\n", .{device.type});
-        std.debug.print("current.online: {?}\n", .{device.current.online});
-        std.debug.print("current.state: {?}\n", .{device.current.state});
-        std.debug.print("current.warning_level: {?}\n", .{device.current.warning_level});
-        std.debug.print("current.battery_level: {?}\n", .{device.current.battery_level});
-        std.debug.print("current.percentage: {?}\n", .{device.current.percentage});
+        std.debug.print("power_supply: {}\n", .{device.power_supply});
+        std.debug.print("type: {}\n", .{device.type});
+        std.debug.print("current.online: {}\n", .{device.current.online});
+        std.debug.print("current.state: {}\n", .{device.current.state});
+        std.debug.print("current.warning_level: {}\n", .{device.current.warning_level});
+        std.debug.print("current.battery_level: {}\n", .{device.current.battery_level});
+        std.debug.print("current.percentage: {d}\n", .{device.current.percentage});
         var tmp: [*c]u8 = null;
 
         if (sd_bus.sd_bus_get_property_string(
@@ -524,7 +524,7 @@ pub const Bus = struct {
         if (device.native_path) |prop| {
             device.allocator.free(prop[0..(std.mem.len(prop) + 1)]);
         }
-        device.native_path = try std.fmt.allocPrintZ(device.allocator, "{s}", .{tmp});
+        device.native_path = try std.fmt.allocPrintSentinel(device.allocator, "{s}", .{tmp}, 0);
 
         if (sd_bus.sd_bus_get_property_string(
             self.system_bus,
@@ -541,7 +541,7 @@ pub const Bus = struct {
         if (device.model) |prop| {
             device.allocator.free(prop[0..(std.mem.len(prop) + 1)]);
         }
-        device.model = try std.fmt.allocPrintZ(device.allocator, "{s}", .{tmp});
+        device.model = try std.fmt.allocPrintSentinel(device.allocator, "{s}", .{tmp}, 0);
 
         if (sd_bus.sd_bus_get_property_trivial(
             self.system_bus,
@@ -644,13 +644,13 @@ pub const Bus = struct {
         std.debug.print("new device state:\n", .{});
         std.debug.print("native_path: {?s}\n", .{device.native_path});
         std.debug.print("model: {?s}\n", .{device.model});
-        std.debug.print("power_supply: {?}\n", .{device.power_supply});
-        std.debug.print("type: {?}\n", .{device.type});
-        std.debug.print("current.online: {?}\n", .{device.current.online});
-        std.debug.print("current.state: {?}\n", .{device.current.state});
-        std.debug.print("current.warning_level: {?}\n", .{device.current.warning_level});
-        std.debug.print("current.battery_level: {?}\n", .{device.current.battery_level});
-        std.debug.print("current.percentage: {?}\n", .{device.current.percentage});
+        std.debug.print("power_supply: {}\n", .{device.power_supply});
+        std.debug.print("type: {}\n", .{device.type});
+        std.debug.print("current.online: {}\n", .{device.current.online});
+        std.debug.print("current.state: {}\n", .{device.current.state});
+        std.debug.print("current.warning_level: {}\n", .{device.current.warning_level});
+        std.debug.print("current.battery_level: {}\n", .{device.current.battery_level});
+        std.debug.print("current.percentage: {d}\n", .{device.current.percentage});
         std.debug.print("-------------------------------------------------\n", .{});
     }
 
@@ -832,7 +832,7 @@ pub const Bus = struct {
         }
 
         if (device.current.battery_level != .UPOWER_DEVICE_LEVEL_NONE) {
-            msg = try std.fmt.bufPrintZ(&msg_buf, "Battery {s}\nCurrent level: {d}%\n", .{ device.stateStr(), device.batteryLevelStr() });
+            msg = try std.fmt.bufPrintZ(&msg_buf, "Battery {s}\nCurrent level: {s}%\n", .{ device.stateStr(), device.batteryLevelStr() });
         } else {
             msg = try std.fmt.bufPrintZ(&msg_buf, "Battery {s}\nCurrent level: {d}%\n", .{ device.stateStr(), device.current.percentage });
         }
