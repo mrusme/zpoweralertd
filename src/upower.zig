@@ -1,7 +1,12 @@
 const std = @import("std");
-const sd_bus = @cImport({
-    @cInclude("elogind/sd-bus.h");
-});
+const build_options = @import("build_options");
+
+const sd_bus = switch (build_options.dbuslib) {
+    0 => @cImport(@cInclude("basu/sd-bus.h")),
+    1 => @cImport(@cInclude("elogind/sd-bus.h")),
+    2 => @cImport(@cInclude("systemd/sd-bus.h")),
+    else => @compileError("Unsupported sdbus provider"),
+};
 
 pub const DeviceState = enum(c_uint) {
     UNKNOWN,
