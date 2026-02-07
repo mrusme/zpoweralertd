@@ -10,13 +10,13 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
     - uses: mlugg/setup-zig@v2
       with:
-        version: 0.14.0
+        version: 0.15.2
 
     - name: Set version
       run: |
