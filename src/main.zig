@@ -2,6 +2,7 @@ const std = @import("std");
 const bus = @import("bus.zig");
 const state = @import("state.zig");
 const upower = @import("upower.zig");
+const when = @import("when.zig");
 const build_options = @import("build_options");
 
 const VERSION = build_options.version;
@@ -12,6 +13,8 @@ const Args = struct {
     ignore_non_power_supplies: bool = false,
     initialized: bool = false,
     verbose: bool = false,
+    when_rules: [when.MAX_RULES]when.WhenRule = undefined,
+    when_rules_len: usize = 0,
 };
 
 const ArgParseError = error{ MissingArgs, InvalidArgs, ProgramEnd };
@@ -21,12 +24,16 @@ fn display_usage(program_name: []const u8) void {
         \\usage: {s} [options]
         \\
         \\Options:
-        \\  -h                show this help message
-        \\  -i <device_type>  ignore this device type, can be use several times
-        \\  -s                ignore the events at startup
-        \\  -S                only use the events coming from power supplies
-        \\  -v                show the version number
-        \\  -V                verbose output
+        \\  -h                              show this help message
+        \\  -i <device_type>                ignore this device type, can be use several times
+        \\  -s                              ignore the events at startup
+        \\  -S                              only use the events coming from power supplies
+        \\  -v                              show the version number
+        \\  -V                              verbose output
+        \\  --when <status> <pct> <command>  execute command at battery percentage
+        \\                                  status: charged/charge/charging or
+        \\                                          discharged/discharge/discharging
+        \\                                  pct: 0-100
         \\
         \\
     ;
@@ -60,6 +67,35 @@ fn parseArgs(argv: [][:0]u8) ArgParseError!Args {
                     args.ignore_types_mask |= @as(u32, 1) << @intCast(@intFromEnum(dt));
                 }
             }
+        } else if (std.mem.eql(u8, argv[optind], "--when")) {
+            if (optind + 3 >= argv.len) {
+                display_usage(program_name);
+                std.debug.print("--when requires 3 arguments: <status> <percentage> <command>\n", .{});
+                return error.MissingArgs;
+            }
+            const status = when.WhenStatus.fromString(argv[optind + 1]) orelse {
+                std.debug.print("Invalid status: {s}. Use 'charged' or 'discharged'.\n", .{argv[optind + 1]});
+                return error.InvalidArgs;
+            };
+            const percentage = std.fmt.parseInt(u8, argv[optind + 2], 10) catch {
+                std.debug.print("Invalid percentage: {s}. Use a number from 0 to 100.\n", .{argv[optind + 2]});
+                return error.InvalidArgs;
+            };
+            if (percentage > 100) {
+                std.debug.print("Invalid percentage: {d}. Use a number from 0 to 100.\n", .{percentage});
+                return error.InvalidArgs;
+            }
+            if (args.when_rules_len >= when.MAX_RULES) {
+                std.debug.print("Too many --when rules (max {d}).\n", .{when.MAX_RULES});
+                return error.InvalidArgs;
+            }
+            args.when_rules[args.when_rules_len] = when.WhenRule{
+                .status = status,
+                .percentage = percentage,
+                .command = argv[optind + 3],
+            };
+            args.when_rules_len += 1;
+            optind += 3;
         } else {
             display_usage(program_name);
             std.debug.print("Unknown option: {s}\n", .{argv[optind]});
@@ -86,7 +122,7 @@ pub fn main() !void {
     //
     const argv = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, argv);
-    const args = parseArgs(argv) catch |err| {
+    var args = parseArgs(argv) catch |err| {
         switch (err) {
             error.ProgramEnd => {
                 std.process.exit(0);
@@ -165,6 +201,23 @@ pub fn main() !void {
                 };
             }
             // device.last = device.current;
+        }
+
+        for (args.when_rules[0..args.when_rules_len]) |*rule| {
+            var any_match = false;
+            for (the_state.devices.items) |device| {
+                if (!device.hasBattery()) continue;
+                if (rule.check(device.current.state, device.current.percentage)) {
+                    any_match = true;
+                    break;
+                }
+            }
+            if (any_match and !rule.triggered) {
+                rule.triggered = true;
+                rule.execute();
+            } else if (!any_match) {
+                rule.triggered = false;
+            }
         }
 
         std.debug.print("entering for removed_devices\n", .{});
