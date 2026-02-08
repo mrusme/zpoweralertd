@@ -58,18 +58,56 @@ fn detectLib(allocator: std.mem.Allocator, exe: *std.Build.Step.Compile) i32 {
 }
 
 fn tryPkgConfig(allocator: std.mem.Allocator, exe: *std.Build.Step.Compile, libname: []const u8) bool {
-    var child = std.process.Child.init(&[_][]const u8{
-        "pkg-config", "--exists", libname,
-    }, allocator);
+    const output = runPkgConfig(allocator, &.{ "pkg-config", "--cflags", "--libs", libname }) orelse return false;
 
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    const result = child.spawnAndWait() catch return false;
-
-    if (result == .Exited and result.Exited == 0) {
-        exe.linkSystemLibrary(libname);
-        return true;
+    // Add -L library paths from pkg-config output. Include paths (-I)
+    // are intentionally NOT added here to avoid conflicts with Zig's
+    // internal pkg-config integration which seems to add them as -I. 
+    // Manually adding the same paths seem to cause a build error.
+    var it = std.mem.tokenizeScalar(u8, std.mem.trim(u8, output, " \n\t\r"), ' ');
+    while (it.next()) |flag| {
+        if (flag.len < 3) continue;
+        if (std.mem.startsWith(u8, flag, "-L")) {
+            exe.addLibraryPath(.{ .cwd_relative = flag[2..] });
+        }
     }
-    return false;
+
+    // Also add explicit libdir for musl-based systems where Zig has no
+    // default library search paths and pkg-config omits -L for paths it
+    // considers default (e.g. /usr/lib).
+    if (runPkgConfig(allocator, &.{ "pkg-config", "--variable=libdir", libname })) |dir| {
+        const trimmed = std.mem.trim(u8, dir, " \n\t\r");
+        if (trimmed.len > 0) exe.addLibraryPath(.{ .cwd_relative = trimmed });
+    }
+
+    // Link using the pkg-config module name. Zig's linkSystemLibrary
+    // appears to handle include paths...?
+    exe.linkSystemLibrary(libname);
+    return true;
+}
+
+fn runPkgConfig(allocator: std.mem.Allocator, args: []const []const u8) ?[]const u8 {
+    var child = std.process.Child.init(args, allocator);
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Ignore;
+    child.spawn() catch return null;
+
+    const stdout = child.stdout orelse {
+        _ = child.wait() catch {};
+        return null;
+    };
+
+    var buf: [4096]u8 = undefined;
+    var total: usize = 0;
+    while (total < buf.len) {
+        const n = stdout.read(buf[total..]) catch break;
+        if (n == 0) break;
+        total += n;
+    }
+
+    const result = child.wait() catch return null;
+    if (result == .Exited and result.Exited == 0) {
+        return allocator.dupe(u8, buf[0..total]) catch return null;
+    }
+    return null;
 }
